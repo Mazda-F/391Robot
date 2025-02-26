@@ -2,7 +2,7 @@
 #include "Arduino_BMI270_BMM150.h"
 #include <math.h>
 
-#define PI 3.1415926535897932384626433832795
+#define PI 3.14159265
 
 #define Motor_L_f D3
 #define Motor_L_r D2
@@ -17,7 +17,7 @@ int xspeed = 0;
 int light_delay = 0;
 
 // PID parameters
-float Kp = 3.76, Ki = 43, Kd = 0.0996;
+float Kp = 0.0, Ki = 0.0, Kd = 0.0;
 float previousError = 0.0;
 float integral = 0.0;
 float k_comp = 0.68;
@@ -28,14 +28,21 @@ unsigned long previousTime = 0;
 #define LAMBDA 0.5       // Decay rate
 float accelBuffer[FILTER_ORDER] = {0};  // Buffer to store past values
 
+// Robot state machine
+enum mode {
+  IDLE, RUN
+};
+
 // BLE parameters
 BLEService nanoService("13012F00-F8C3-4F4A-A8F4-15CD926DA146");
 BLEStringCharacteristic pitchAngleCharacteristic("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 BLEStringCharacteristic speedCommandCharacteristic("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16); 
 BLEStringCharacteristic yawCommandCharacteristic("13012F03-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic motorLeftCommandCharacteristic("13012F04-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic motorRightCommandCharacteristic("13012F05-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic controlCommandCharacteristic("13012F06-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+
+BLEStringCharacteristic control_com("13012F06-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic Kp_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic Ki_com("13012F08-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic Kd_com("13012F09-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 
 
 void setup() {
@@ -62,9 +69,10 @@ void setup() {
   nanoService.addCharacteristic(pitchAngleCharacteristic);
   nanoService.addCharacteristic(speedCommandCharacteristic);
   nanoService.addCharacteristic(yawCommandCharacteristic);
-  nanoService.addCharacteristic(motorLeftCommandCharacteristic);
-  nanoService.addCharacteristic(motorRightCommandCharacteristic);
-  nanoService.addCharacteristic(controlCommandCharacteristic);
+  nanoService.addCharacteristic(control_com);
+  nanoService.addCharacteristic(Kp_com);
+  nanoService.addCharacteristic(Ki_com);
+  nanoService.addCharacteristic(Kd_com);
   BLE.addService(nanoService);
   BLE.advertise();
   Serial.println("BLE advertising...");
@@ -123,15 +131,28 @@ void pidLoop() {
         integral = 0;
     }
 
-    // Adjust motor speeds
     int motorSpeed = map(abs(output), 0, 100, 0, 255);
-    motorSpeed = constrain(motorSpeed, 0, 255);
+    // Adjust motor speeds
+    if (control_mode) {
+      motorSpeed = constrain(motorSpeed, 0, 255);
+    }
+    else {
+      motorSpeed = 0;
+    }
 
-    Serial.print(compTheta);
-    Serial.print("  ");
-    Serial.print(output);
-    Serial.print("  ");
-    Serial.print(motorSpeed);
+    // Serial.print(compTheta);
+    // Serial.print("  ");
+    // Serial.print(output);
+    // Serial.print("  ");
+    // Serial.print(motorSpeed);
+    // Serial.println("  ");
+    // Serial.println("Kp: " + Kp.toString() + "Ki: " + Ki.toString() + "Kd: " + Kd.toString());
+    Serial.print("Kp: ");
+    Serial.print(Kp);
+    Serial.print("Ki: ");
+    Serial.print(Ki);
+    Serial.print("Kd: ");
+    Serial.print(Kd);
     Serial.println("  ");
 
 
@@ -149,30 +170,21 @@ void pidLoop() {
 }
 
 void readBluetoothBLE() {
-    if (controlCommandCharacteristic.written()) {  
-        String data = controlCommandCharacteristic.value();  // Read BLE data
-        if (data.startsWith("PID:")) {
-            int kp_index = data.indexOf(":") + 1;
-            int ki_index = data.indexOf(",", kp_index) + 1;
-            int kd_index = data.indexOf(",", ki_index) + 1;
-
-            Kp = data.substring(kp_index, ki_index - 1).toFloat();
-            Ki = data.substring(ki_index, kd_index - 1).toFloat();
-            Kd = data.substring(kd_index).toFloat();
-
-            // Reset PID state
-            integral = 0;
-            previousError = 0;
-            previousTime = millis();
-
-            Serial.print("Updated PID: Kp=");
-            Serial.print(Kp);
-            Serial.print(", Ki=");
-            Serial.print(Ki);
-            Serial.print(", Kd=");
-            Serial.println(Kd);
-        }
-    }
+  String control_mode_str = control_com.value();
+  String Kp_str = Kp_com.value();
+  String Ki_str = Ki_com.value();
+  String Kd_str = Kd_com.value();
+  control_mode = control_mode_str.toInt();
+  float Kp_in = Kp_str.toFloat();
+  float Ki_in = Ki_str.toFloat();
+  float Kd_in = Kd_str.toFloat();
+  
+  // if (isnan(Kp_in)) Kp_in = 0;
+  // if (isnan(Ki_in)) Ki_in = 0;
+  // if (isnan(Kd_in)) Kd_in = 0;
+  Kp = Kp_in;
+  Ki = Ki_in;
+  Kd = Kd_in;
 }
 
 
