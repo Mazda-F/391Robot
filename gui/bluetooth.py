@@ -91,7 +91,7 @@ class Bluetooth:
                 await self.sendCommand(client, Kd, self.kd_uuid)
                 await self.sendCommand(client, control_mode, self.control_uuid)
 
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.001)
 
     async def sendCommand(self, client : BleakClient, val, uuid):
         val_str = str(val)
@@ -129,3 +129,4 @@ if __name__ == "__main__":
 
     dash.root.mainloop()
 
+    exit(0) 

@@ -1,6 +1,7 @@
 #include <ArduinoBLE.h>
 #include "Arduino_BMI270_BMM150.h"
 #include <math.h>
+#include "utils.h"
 
 #define PI 3.14159265
 
@@ -8,10 +9,16 @@
 #define Motor_L_r D2
 #define Motor_R_f D4
 #define Motor_R_r D5
+#define SENSOR_PERIOD 0.020
 
+// Sensor data variables
 float accelTheta;
 float theta0;
 float pitch;
+float gyro_sample_rate;
+float ax, ay, az, gx, gy, gz;
+float deltaT;
+
 int control_mode = 0; // Manual by default
 int xspeed = 0;
 int light_delay = 0;
@@ -22,6 +29,11 @@ float previousError = 0.0;
 float integral = 0.0;
 float k_comp = 0.68;
 unsigned long previousTime = 0;
+unsigned long t0;
+unsigned long t1;
+unsigned long dt;
+
+TimerDecorator imutimer("IMU_TIMER");
 
 //FIR Filter parameters
 #define FILTER_ORDER 10  // Number of past samples
@@ -78,9 +90,13 @@ void setup() {
   Serial.println("BLE advertising...");
 }
 
-void readIMU(float &ax, float &ay, float &az, float &gx, float &gy, float &gz) {
+void readIMU(float &ax, float &ay, float &az, float &gx, float &gy, float &gz, float &gyroSampleRate) {
+    unsigned long t0, t1;
+    t0 = millis();
     IMU.readAcceleration(ax, ay, az);
     IMU.readGyroscope(gx, gy, gz);
+    gyroSampleRate = IMU.gyroscopeSampleRate();
+
 }
 
 float FIR(float newSample) {
@@ -101,19 +117,19 @@ float FIR(float newSample) {
     return sum / weightSum;
 }
 
+
+
 void pidLoop() {
     unsigned long currentTime = millis();
-    float deltaT = (currentTime - previousTime) / 1000.0; // Convert to seconds
+    deltaT = (currentTime - previousTime) / 1000.0; // Convert to seconds
     previousTime = currentTime;
 
-    // Read sensor data
-    float ax, ay, az, gx, gy, gz;
-    readIMU(ax, ay, az, gx, gy, gz);
-
+    // imutimer(readIMU, ax, ay, az, gx, gy, gz, gyro_sample_rate);
+    readIMU(ax, ay, az, gx, gy, gz, gyro_sample_rate);
+ 
     // Angle calculation and complementary filter
     accelTheta = atan(ay/az) * (180/PI);
-    float sampleRate = IMU.gyroscopeSampleRate();
-    float samplePeriod = 1 / sampleRate;
+    float samplePeriod = 1 / gyro_sample_rate;
     float gyroTheta = accelTheta + gz * samplePeriod;
     float compTheta = k_comp * (gyroTheta) + (1-k_comp) * accelTheta + 2.0;
     //float FIR_Theta = FIR(compTheta);
@@ -132,29 +148,12 @@ void pidLoop() {
     }
 
     int motorSpeed = map(abs(output), 0, 100, 0, 255);
-    // Adjust motor speeds
     if (control_mode) {
       motorSpeed = constrain(motorSpeed, 0, 255);
     }
     else {
       motorSpeed = 0;
     }
-
-    // Serial.print(compTheta);
-    // Serial.print("  ");
-    // Serial.print(output);
-    // Serial.print("  ");
-    // Serial.print(motorSpeed);
-    // Serial.println("  ");
-    // Serial.println("Kp: " + Kp.toString() + "Ki: " + Ki.toString() + "Kd: " + Kd.toString());
-    Serial.print("Kp: ");
-    Serial.print(Kp);
-    Serial.print("Ki: ");
-    Serial.print(Ki);
-    Serial.print("Kd: ");
-    Serial.print(Kd);
-    Serial.println("  ");
-
 
     if (output > 0) {
         analogWrite(Motor_L_r, motorSpeed);
@@ -198,9 +197,13 @@ void loop() {
     Serial.println(central.address());
 
     while (central.connected()) {  
+      // MAIN LOOP RUNTIME <= 25 ms
+      // t0 = micros();
       pidLoop();
       readBluetoothBLE();
-      delay(5);
+      // t1 = micros();
+      // dt = t1 - t0;
+      // Serial.println(dt);
     }
 
     Serial.println("Central device disconnected!");
