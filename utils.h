@@ -5,6 +5,9 @@
 
 void Kprint(float Kp, float Ki, float Kd);
 
+void updatePIDfromSerial(float* Kp, float* Ki, float* Kd, float* integral, 
+    float* prev_error, float* prev_time, float* PID_output_max);
+
 class TimerDecorator {
 private:
     const char* function_id;
