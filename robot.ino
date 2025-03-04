@@ -122,14 +122,14 @@ void readBluetoothBLE() {
 void loop() {
     BLEDevice central = BLE.central(); 
     // if a central is connected to peripheral:
-        // ReadRawAngle(&rawAngle, &degAngle); //ask the value from the sensor
-        // correctAngle(&correctedAngle, &degAngle, &startAngle); //tare the value
-        // checkQuadrant(&correctedAngle, &totalAngle, &num_turns, &quad_num, &prev_quad_num);
-        // Serial.print("Raw Angle: ");
-        // Serial.print(rawAngle);
-        // Serial.print(" deg Angle: ");
-        // Serial.println(degAngle);
-        // delay(1000);
+        ReadRawAngle(&rawAngle, &degAngle); //ask the value from the sensor
+        correctAngle(&correctedAngle, &degAngle, &startAngle); //tare the value
+        checkQuadrant(&correctedAngle, &totalAngle, &num_turns, &quad_num, &prev_quad_num);
+        Serial.print("Raw Angle: ");
+        Serial.print(rawAngle);
+        Serial.print(" deg Angle: ");
+        Serial.println(degAngle);
+        delay(1000);
 
     if (central) {
         Serial.print("Connected to central: ");
