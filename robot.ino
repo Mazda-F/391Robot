@@ -58,7 +58,17 @@ float FIR(float newSample) {
     return sum / weightSum;
 }
 
-void pidLoop() {
+float IIR(float newSample) {
+    float sum = 0, weightSum = 0;
+
+    float filterVal = Beta * previousValue + (1-Beta) * newSample;
+
+    previousValue = filterVal;        
+
+    return previousValue;
+}
+
+void pid_IMU() {
     unsigned long currentTime = millis();
     float deltaT = (currentTime - previousTime) / 1000.0;
     previousTime = currentTime;
@@ -70,22 +80,46 @@ void pidLoop() {
     float sampleRate = IMU.gyroscopeSampleRate();
     float samplePeriod = 1 / sampleRate;
     float gyroTheta = accelTheta + gz * samplePeriod;
-    float compTheta = k_comp * (gyroTheta) + (1-k_comp) * accelTheta + 2.0; // Sensor Fusion Using Complementary Filter
-    float FIR_Theta = FIR(compTheta); // Apply FIR filter with exponentially decaying weights
+    float compTheta = k_comp * (gyroTheta) + (1-k_comp) * accelTheta + 2.0; // Sensor Fusion Using Complementary Filter 
 
     float setpoint = 0.0; 
     float error = setpoint - compTheta;
     integral += error * deltaT;
     float derivative = (error - previousError) / deltaT;
+    derivative = FIR(derivative); // Apply FIR (low pass) filter with exponentially decaying weights to derivative with high frequency noise
     float output = Kp * error + Ki * integral + Kd * derivative;
     previousError = error;
 
     if (abs(error) < 3) {
         integral = 0;
     }
+}
 
-    Serial.println(output);
+void pid_ENCODER() {
+    unsigned long currentTime = millis();
+    float deltaT = (currentTime - previousTime) / 1000.0;
+    previousTime = currentTime;
 
+
+
+    if (abs(error) < 3) {
+        integral = 0;
+    }
+}
+
+void getDistance(){
+    ReadRawAngle(&rawAngle, &degAngle);
+    correctAngle(&correctedAngle, &degAngle, &startAngle);
+
+    if (correctedAngle >= prevAngle_right) {
+      distanceRight = distanceRight + (correctedAngle-prevAngle_right) * wheelRadius * (PI/180)
+    } 
+    else {
+      distanceRight = distanceRight - (prevAngle_right - correctedAngle) * wheelRadius * (PI/180)
+    } 
+}
+
+void motorControl() {
     int motorSpeed = map(abs(output), 0, PID_output_max, 0, 255);
     motorSpeed = constrain(motorSpeed, 0, 255);
 
@@ -101,6 +135,8 @@ void pidLoop() {
         analogWrite(Motor_R_r, 0);
     }
 }
+
+
 
 void readBluetoothBLE() {
     String control_mode_str = control_com.value();
@@ -119,6 +155,7 @@ void readBluetoothBLE() {
     Kd = Kd_in;
 }
 
+/*
 void loop() {
     BLEDevice central = BLE.central(); 
     // if a central is connected to peripheral:
@@ -148,4 +185,14 @@ void loop() {
 
     Serial.println("Central device disconnected!");
     } 
+}
+*/
+
+void loop() {
+    updatePIDfromSerial(&Kp, &Ki, &Kd, &integral, &previousError, &previousTime, &PID_output_max);
+    pidLoop();
+    ReadRawAngle(&rawAngle, &degAngle);
+    correctAngle(&correctedAngle, &degAngle, &startAngle);
+
+    Serial.println(correctedAngle * wheelRadius * (PI/180));
 }

@@ -25,6 +25,10 @@ const int samples = int(360 / sampleInterval + 2);
 float calibrationTable[samples];                        // for recording magnet angles every "sampleInterval" degrees
 float interpolatedAngle;
 float correctedAngle = 0;
+float wheelRadius = 0.04;
+float distanceRight = 0.0;
+float prevAngle_right = 0.0;
+
 
 float num_turns = 0;                                    // number of turns
 float startAngle = 0;                                   // starting angle
@@ -36,7 +40,7 @@ int quad_num = 0;                                 // quadrant IDs
 int prev_quad_num = 0;                         // these are used for tracking the num_turns
 float encoderTimer = 0;
 
-// Sensor data variables
+// IMU data variables
 float accelTheta;
 float theta0;
 float pitch;
@@ -64,6 +68,7 @@ unsigned long t0;
 unsigned long t1;
 unsigned long dt;
 float accelBuffer[FILTER_ORDER] = {0};  // Buffer to store past values
+float previousValue = 0;
 
 TimerDecorator imutimer("IMU_TIMER");
 
