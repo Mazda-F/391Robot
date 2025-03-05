@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 void Kprint(float Kp, float Ki, float Kd);
+void Kprint4(float Kp, float Ki, float Kd, float Ko);
 
 void updatePIDfromSerial(float* Kp, float* Ki, float* Kd, float* integral, 
     float* prev_error, float* prev_time, float* PID_output_max);

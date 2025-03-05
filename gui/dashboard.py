@@ -28,9 +28,13 @@ class Dashboard:
         self.lscale = Scale(self.root, from_=8, to=-8, orient=VERTICAL, length=300, tickinterval=5, command=self.on_slider_input)
         self.rscale = Scale(self.root, from_=8, to=-8, orient=VERTICAL, length=300, tickinterval=5, command=self.on_slider_input)
 
-        self.kp_tbox = Text(self.root, height=3)
-        self.ki_tbox = Text(self.root, height=3)
-        self.kd_tbox = Text(self.root, height=3)
+        self.k1_tbox = Text(self.root, height=3)
+        self.k2_tbox = Text(self.root, height=3)
+        self.k3_tbox = Text(self.root, height=3)
+        self.k4_tbox = Text(self.root, height=3)
+        self.k5_tbox = Text(self.root, height=3)
+        self.k6_tbox = Text(self.root, height=3)
+        self.k7_tbox = Text(self.root, height=3)
 
         self.setkbtn = Button(self.root, text="SET K VALUES", font=("Arial", 12), command=self.on_setk)
 
@@ -53,10 +57,14 @@ class Dashboard:
         # self.label_lm.grid(row=6, column=0)
         # self.label_rm.grid(row=6, column=2)
         self.toggle_tilt_control.grid(row=7,column=1)
-        self.kp_tbox.grid(row=8,column=1)
-        self.ki_tbox.grid(row=9,column=1)
-        self.kd_tbox.grid(row=10,column=1)
-        self.setkbtn.grid(row=11,column=1)
+        self.k1_tbox.grid(row=8,column=1)
+        self.k2_tbox.grid(row=9,column=1)
+        self.k3_tbox.grid(row=10,column=1)
+        self.k4_tbox.grid(row=11,column=1)
+        self.k5_tbox.grid(row=12,column=1)
+        self.k6_tbox.grid(row=13,column=1)
+        self.k7_tbox.grid(row=14,column=1)
+        self.setkbtn.grid(row=15,column=1)
 
         self.states = {"Idle" : 0, "Running" : 1}
 
@@ -66,9 +74,13 @@ class Dashboard:
             self.yaw = 0
             self.motor_left = 0
             self.motor_right = 0
-            self.Kp = 0.0
-            self.Ki = 0.0
-            self.Kd = 0.0
+            self.K1 = 0.0
+            self.K2 = 0.0
+            self.K3 = 0.0
+            self.K4 = 0.0
+            self.K5 = 0.0
+            self.K6 = 0.0
+            self.K7 = 0.0
 
         with self.readlock:
             self.pitch = 0
@@ -110,13 +122,21 @@ class Dashboard:
         self.update_graphics(speed, yaw)
 
     def on_setk(self):
-        Ki = float(self.ki_tbox.get(1.0, "end-1c") )
-        Kd = float(self.kd_tbox.get(1.0, "end-1c") )
-        Kp = float(self.kp_tbox.get(1.0, "end-1c") )
+        K1 = float(self.k1_tbox.get(1.0, "end-1c") )
+        K2 = float(self.k2_tbox.get(1.0, "end-1c") )
+        K3 = float(self.k3_tbox.get(1.0, "end-1c") )
+        K4 = float(self.k4_tbox.get(1.0, "end-1c") )
+        K5 = float(self.k5_tbox.get(1.0, "end-1c") )
+        K6 = float(self.k6_tbox.get(1.0, "end-1c") )
+        K7 = float(self.k7_tbox.get(1.0, "end-1c") )
         with self.lock:
-            self.Ki = Ki
-            self.Kd = Kd
-            self.Kp = Kp
+            self.K1 = K1
+            self.K2 = K2
+            self.K3 = K3
+            self.K4 = K4
+            self.K5 = K5
+            self.K6 = K6
+            self.K7 = K7
         
     def on_key_press(self, e): # e is event being passed into arg
         if e.keysym in ("Left", "Right", "Up", "Down"):

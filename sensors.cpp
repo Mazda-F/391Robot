@@ -1,5 +1,6 @@
 #include "sensors.h"
 
+
 void checkMagnetPresence(int* magnetStatus) {  
 
     Serial.println("Finding Magnets...");
@@ -54,21 +55,30 @@ void checkQuadrant(float* corrected_angle, float* total_angle, float* num_turns,
     Input:
     Output: `corrected_angle` 
 */
-void correctAngle(float* corrected_angle, float* deg_angle, float* start_angle) {
-  
-  *corrected_angle = *deg_angle - *start_angle; //this tares the position
-  if(*corrected_angle < 0) { //if the calculated angle is negative, we need to "normalize" it
-    *corrected_angle = *corrected_angle + 360; //correction for negative numbers (i.e. -15 becomes +345)
+float correctAngle(float deg_angle, float start_angle) {
+  float corrected_angle;
+  corrected_angle = deg_angle - start_angle; //this tares the position
+  if(corrected_angle < 0) { //if the calculated angle is negative, we need to "normalize" it
+    corrected_angle = corrected_angle + 360.0; //correction for negative numbers (i.e. -15 becomes +345)
   }
   else {
   }
+  return corrected_angle;
 }
+
 
 /*
     ReadRawAngle
     Reads the raw angle from the magnetic encoder
 */
-void ReadRawAngle(int* rawAngle, float* degAngle) { 
+float ReadRawAngle(uint8_t bus) { 
+  Wire.beginTransmission(0x70);  // TCA9548A address is 0x70
+  Wire.write(1 << bus);          // send byte to select bus
+  Wire.endTransmission();
+    // Serial.print(bus);
+
+  int rawAngle;
+  float degAngle;
   //7:0 - bits
   Wire.beginTransmission(ENCODER_ADDRESS); //connect to the sensor
   Wire.write(0x0D); //figure 21 - register map: Raw angle (7:0)
@@ -97,14 +107,34 @@ void ReadRawAngle(int* rawAngle, float* degAngle) {
   //Low:  00000000|00001111
   //      -----------------
   //H|L:  00001111|00001111
-  *rawAngle = highbyte | lowbyte; //int is 16 bits (as well as the word)
+  rawAngle = highbyte | lowbyte; //int is 16 bits (as well as the word)
 
   //We need to calculate the angle:
   //12 bit -> 4096 different levels: 360° is divided into 4096 equal parts:
   //360/4096 = 0.087890625
   //Multiply the output of the encoder with 0.087890625
-  *degAngle = (*rawAngle) * 0.087890625; 
+  degAngle = (rawAngle) * 0.087890625; 
   
   //Serial.print("Deg angle: ");
   //Serial.println(degAngle, 2); //absolute position of the encoder within the 0-360 circle
+    return degAngle;
+}
+
+float getAngle(float start_angle, uint8_t bus) {
+    float degAngle =  ReadRawAngle(bus);
+    float corrected_angle = correctAngle(degAngle, start_angle);
+    return corrected_angle;
+}
+
+
+float getDisplacement(int rotations, float prev_displacement, float prev_angle, float wheel_angle, float wheel_radius) {
+    
+    if (wheel_angle < 20.0 && prev_angle > 340.0) {
+      rotations += 1;
+    }
+    else if (wheel_angle > 340.0 && prev_angle < 20.0){
+      rotations -=1;
+    }
+   
+    return (((float)rotations*2.0*PI) + (wheel_angle * PI/180.0)) * wheel_radius; // radius*theta = arclenght
 }

@@ -9,7 +9,19 @@ void Kprint(float Kp, float Ki, float Kd) {
     Serial.print(Ki);
     Serial.print(" Kd: ");
     Serial.print(Kd);
-    Serial.println("  ");
+    Serial.println(" ");
+}
+
+void Kprint4(float Kp, float Ki, float Kd, float Ko) {
+    Serial.print("Kp: ");
+    Serial.print(Kp);
+    Serial.print(" Ki: ");
+    Serial.print(Ki);
+    Serial.print(" Kd: ");
+    Serial.print(Kd);
+    Serial.print(" Ko: ");
+    Serial.print(Ko);
+    Serial.println(" ");
 }
 
 void updatePIDfromSerial(float* Kp, float* Ki, float* Kd, float* integral, 

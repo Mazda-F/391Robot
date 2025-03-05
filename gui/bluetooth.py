@@ -36,9 +36,13 @@ class Bluetooth:
         self.speed_uuid = "13012F02-F8C3-4F4A-A8F4-15CD926DA146"
         self.yaw_uuid = "13012F03-F8C3-4F4A-A8F4-15CD926DA146"
 
-        self.kp_uuid = "13012F07-F8C3-4F4A-A8F4-15CD926DA146"
-        self.ki_uuid = "13012F08-F8C3-4F4A-A8F4-15CD926DA146"
-        self.kd_uuid = "13012F09-F8C3-4F4A-A8F4-15CD926DA146"
+        self.k1_uuid = "13012F07-F8C3-4F4A-A8F4-15CD926DA146"
+        self.k2_uuid = "13012F08-F8C3-4F4A-A8F4-15CD926DA146"
+        self.k3_uuid = "13012F09-F8C3-4F4A-A8F4-15CD926DA146"
+        self.k4_uuid = "13012F10-F8C3-4F4A-A8F4-15CD926DA146"
+        self.k5_uuid = "13012F11-F8C3-4F4A-A8F4-15CD926DA146"
+        self.k6_uuid = "13012F12-F8C3-4F4A-A8F4-15CD926DA146"
+        self.k7_uuid = "13012F13-F8C3-4F4A-A8F4-15CD926DA146"
         self.event_loop = asyncio.get_event_loop()
 
     async def run(self):
@@ -64,9 +68,13 @@ class Bluetooth:
                     # motor_left = self.input.motor_left
                     # motor_right = self.input.motor_right
                     control_mode = self.input.control_state
-                    Kp = self.input.Kp
-                    Ki = self.input.Ki
-                    Kd = self.input.Kd
+                    K1 = self.input.K1
+                    K2 = self.input.K2
+                    K3 = self.input.K3
+                    K4 = self.input.K4
+                    K5 = self.input.K5
+                    K6 = self.input.K6
+                    K7 = self.input.K7
 
                     self.lock.release()
                         
@@ -86,9 +94,13 @@ class Bluetooth:
 
                 await self.sendCommand(client, speed, self.speed_uuid)
                 await self.sendCommand(client, yaw, self.yaw_uuid)
-                await self.sendCommand(client, Kp, self.kp_uuid)
-                await self.sendCommand(client, Ki, self.ki_uuid)
-                await self.sendCommand(client, Kd, self.kd_uuid)
+                await self.sendCommand(client, K1, self.k1_uuid)
+                await self.sendCommand(client, K2, self.k2_uuid)
+                await self.sendCommand(client, K3, self.k3_uuid)
+                await self.sendCommand(client, K4, self.k4_uuid)
+                await self.sendCommand(client, K5, self.k5_uuid)
+                await self.sendCommand(client, K6, self.k6_uuid)
+                await self.sendCommand(client, K7, self.k7_uuid)
                 await self.sendCommand(client, control_mode, self.control_uuid)
 
                 await asyncio.sleep(0.001)
