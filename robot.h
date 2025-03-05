@@ -36,7 +36,7 @@ struct Error {
   float e_prev = 0.0;
   float e_delta = 0.0;
   float e_delta_prev = 0.0;
-}
+};
 
 K Kt;
 K Kx;
