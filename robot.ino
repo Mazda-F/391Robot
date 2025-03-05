@@ -41,7 +41,9 @@ void setup() {
 }
 
 
-
+/*
+    Returns the angle in RADIANS
+*/
 float getIMUPitch() {
     float ax, ay, az, gx, gy, gz;
     float accelTheta, gyro_sample_rate, gyro_sample_period, gyroTheta;
@@ -51,7 +53,7 @@ float getIMUPitch() {
     accelTheta = atan(ay/az) * (180/PI);
     gyro_sample_period = 1 / gyro_sample_rate;
     gyroTheta = accelTheta + gz * gyro_sample_period;
-    return K_COMP * (gyroTheta) + (1-K_COMP) * accelTheta + 2.0; // Sensor Fusion Using Complementary Filter 
+    return (K_COMP * (gyroTheta) + (1-K_COMP) * accelTheta + 2.0) * PI/180; // Sensor Fusion Using Complementary Filter 
 }
 
 float FIR(float newSample) {

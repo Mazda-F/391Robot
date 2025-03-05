@@ -30,6 +30,14 @@ struct K {
   float Kd = 0.0;
 };
 
+struct Error {
+  float e = 0.0;
+  float e_integ = 0.0;
+  float e_prev = 0.0;
+  float e_delta = 0.0;
+  float e_delta_prev = 0.0;
+}
+
 K Kt;
 K Kx;
 
