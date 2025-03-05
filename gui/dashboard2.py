@@ -3,9 +3,11 @@ import math
 import sys
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QObject
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QSlider, 
+    QApplication, QMainWindow, QWidget, QLabel, QSlider, QLineEdit,
     QPushButton, QGridLayout
 )
+
+NUM_PARAMS = 7
 
 class DashboardModel(QObject):
     state_changed = pyqtSignal()
@@ -16,9 +18,12 @@ class DashboardModel(QObject):
         self._speed = 0
         self._yaw = 0
         self._pitch = 0
+        self._motor_left = 0
+        self._motor_right = 0
+        self._params = [float]*NUM_PARAMS
     
     def getControlState(self):
-        return self.control_state
+        return self._control_state
     
     def setControlState(self, value):
         if self._control_state != value:
@@ -42,24 +47,62 @@ class DashboardModel(QObject):
             self.state_changed.emit()
     yaw = property(getYaw, setYaw)
 
+    def getMotorLeft(self):
+        return self._motor_left
+
+    def setMotorLeft(self, value):
+        if self._motor_left != value:
+            self._motor_left = value
+            self.state_changed.emit()
+
+    motor_left = property(getMotorLeft, setMotorLeft)
+
+    def getMotorRight(self):
+        return self._motor_right
+
+    def setMotorRight(self, value):
+        if self._motor_right != value:
+            self._motor_right = value
+            self.state_changed.emit()
+
+    motor_right = property(getMotorRight, setMotorRight)
+
     def getPitch(self):
         return self._pitch
     def setPitch(self, value):
         if self._pitch != value:
             self._pitch = value
             self.state_changed.emit()
-    pitch = property(getPitch, setPitch)
+    pitch = property(getPitch, lambda self, value: self.setPitch(value))
+
+    def getParams(self):
+        return self._params
+    def setParams(self, value):
+        emit_flag : bool = False
+        if len(self._params) != len(value):
+            self._params = value.copy()
+            emit_flag = True
+        else:
+            if value and self._params:
+                for i in range(len(value)):
+                    if self._params[i] != value[i]:
+                        self._params[i] = value[i]
+                        emit_flag = True
+        if emit_flag:
+            self.state_changed.emit()
+    params = property(getParams, lambda self, value : self.setParams(value))
 
 class DashboardView(QMainWindow):
     arrow_key_pressed = pyqtSignal(str)
     arrow_key_released = pyqtSignal(str)
     slider_changed = pyqtSignal()
     toggle_clicked = pyqtSignal()
+    params_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Robot Dashboard")
-        self.setGeometry(100, 100, 800, 800)
+        self.setGeometry(100, 100, 800, 1200)
         self.pressed_keys = set()
 
         central_widget = QWidget(self)
@@ -76,9 +119,9 @@ class DashboardView(QMainWindow):
             lb.setFixedSize(80,80)
         
         grid.addWidget(self.label_up,0,1)
-        grid.addWidget(self.label_up,1,0)
-        grid.addWidget(self.label_up,1,1)
-        grid.addWidget(self.label_up,1,2)
+        grid.addWidget(self.label_down,1,1)
+        grid.addWidget(self.label_left,1,0)
+        grid.addWidget(self.label_right,1,2)
         
         self.label_speed = QLabel("Speed: 0", self)
         self.label_yaw = QLabel("Yaw Angle: 0", self)
@@ -90,10 +133,44 @@ class DashboardView(QMainWindow):
         grid.addWidget(self.label_yaw, 3,0,1,3)
         grid.addWidget(self.label_pitch, 4,0,1,3)
 
-        self.toggle_button = QPushButton("Toggle Motor ON", self)
-        grid.addWidget(self.toggle_button, 5, 1)
 
+        self.slider_left = QSlider(Qt.Vertical, self)
+        self.slider_left.setRange(-10, 10)
+        self.slider_left.setValue(0)
+        self.slider_left.setTickInterval(5)
+        self.slider_left.setTickPosition(QSlider.TicksBothSides)
+
+        self.slider_right = QSlider(Qt.Vertical, self)
+        self.slider_right.setRange(-10, 10)
+        self.slider_right.setValue(0)
+        self.slider_right.setTickInterval(5)
+        self.slider_right.setTickPosition(QSlider.TicksBothSides)
+
+        grid.addWidget(self.slider_left, 5, 0)
+        grid.addWidget(self.slider_right, 5, 2)
+
+        self.label_lm = QLabel("L", self)
+        self.label_rm = QLabel("R", self)
+        self.label_lm.setAlignment(Qt.AlignCenter)
+        self.label_rm.setAlignment(Qt.AlignCenter)
+        grid.addWidget(self.label_lm, 6, 0)
+        grid.addWidget(self.label_rm, 6, 2)
+
+
+        self.toggle_button = QPushButton("Toggle Motor ON", self)
+        grid.addWidget(self.toggle_button, 7, 1)
         self.toggle_button.clicked.connect(self.toggle_clicked)
+
+        self.paramboxes = []*NUM_PARAMS
+        for i in range(NUM_PARAMS):
+            tbox = QLineEdit(self)
+            self.paramboxes.append(tbox)
+            tbox.resize(780, 120)
+            grid.addWidget(tbox, 8+i, 1)
+        
+        self.param_button = QPushButton("Set Parameters", self)
+        grid.addWidget(self.param_button, 8+NUM_PARAMS, 1)
+        self.param_button.clicked.connect(self.params_changed)
 
         central_widget.setFocusPolicy(Qt.StrongFocus)
         central_widget.setFocus()
@@ -112,16 +189,16 @@ class DashboardView(QMainWindow):
         key = event.key()
         if key == Qt.Key_Up and "Up" not in self.pressed_keys:
             self.pressed_keys.add("Up")
-            self.arrowKeyPressed.emit("Up")
+            self.arrow_key_pressed.emit("Up")
         elif key == Qt.Key_Down and "Down" not in self.pressed_keys:
             self.pressed_keys.add("Down")
-            self.arrowKeyPressed.emit("Down")
+            self.arrow_key_pressed.emit("Down")
         elif key == Qt.Key_Left and "Left" not in self.pressed_keys:
             self.pressed_keys.add("Left")
-            self.arrowKeyPressed.emit("Left")
+            self.arrow_key_pressed.emit("Left")
         elif key == Qt.Key_Right and "Right" not in self.pressed_keys:
             self.pressed_keys.add("Right")
-            self.arrowKeyPressed.emit("Right")
+            self.arrow_key_pressed.emit("Right")
         self.updateArrowDisplay()
         super().keyPressEvent(event)
 
@@ -129,16 +206,16 @@ class DashboardView(QMainWindow):
         key = event.key()
         if key == Qt.Key_Up and "Up" in self.pressed_keys:
             self.pressed_keys.remove("Up")
-            self.arrowKeyReleased.emit("Up")
+            self.arrow_key_released.emit("Up")
         elif key == Qt.Key_Down and "Down" in self.pressed_keys:
             self.pressed_keys.remove("Down")
-            self.arrowKeyReleased.emit("Down")
+            self.arrow_key_released.emit("Down")
         elif key == Qt.Key_Left and "Left" in self.pressed_keys:
             self.pressed_keys.remove("Left")
-            self.arrowKeyReleased.emit("Left")
+            self.arrow_key_released.emit("Left")
         elif key == Qt.Key_Right and "Right" in self.pressed_keys:
             self.pressed_keys.remove("Right")
-            self.arrowKeyReleased.emit("Right")
+            self.arrow_key_released.emit("Right")
         self.updateArrowDisplay()
         super().keyReleaseEvent(event)
 
@@ -153,6 +230,18 @@ class DashboardView(QMainWindow):
 
     def getSliderValues(self):
         return self.slider_left.value(), self.slider_right.value()
+    
+    def getParamValues(self):
+        paramvals = []
+        for box in self.paramboxes:
+            try:
+                val = float(box.text())
+                if val is float('NaN') or val is float('inf'):
+                    raise ValueError
+            except ValueError:
+                val = 0.0
+            paramvals.append(val)
+        return paramvals
 
 
 class DashboardController(QObject):
@@ -166,7 +255,9 @@ class DashboardController(QObject):
         self.view.arrow_key_released.connect(self.onArrowKeyReleased)
         self.view.slider_changed.connect(self.onSliderChanged)
         self.view.toggle_clicked.connect(self.onToggleClicked)
+        self.view.params_changed.connect(self.onSetParamClicked)
         self.model.state_changed.connect(self.updateView)
+        self.updateTextboxes()
 
     def onArrowKeyPressed(self, direction: str):
         self.pressed_keys.add(direction)
@@ -195,15 +286,41 @@ class DashboardController(QObject):
         # manual = 0,auto = 1
         self.model.control_state = 1 if self.model.control_state == 0 else 0
 
+    def onSetParamClicked(self):
+        paramvals : list = self.view.getParamValues()
+        self.model.params = paramvals
+        with open('appcache.txt', 'w') as f:
+            for val in paramvals:
+                f.write(str(val)+"\n")
+
     def updateView(self):
         self.view.updateDisplay(self.model)
+
+    def updateTextboxes(self):
+        params = self.model.getParams()
+        for i in range(min(len(params), len(self.view.paramboxes))):
+            self.view.paramboxes[i].setText(str(params[i]))
+
+
 
 class Dashboard:
     def __init__(self):
         self.app = QApplication([])
         self.app.setStyleSheet(open("style.css").read())
         self.model = DashboardModel()
+        try:
+            f = open('appcache.txt', 'r')
+            vals = []
+            for val in f.readlines():    
+                vals.append(float(val))
+            self.model.params = vals.copy()
+        except Exception as e:
+            print(e)
+            pass
+        self.model.state_changed.emit()
+
         self.view = DashboardView()
+        self.view.params_changed.emit()
         self.controller = DashboardController(self.model, self.view)
         self.view.show()
 
@@ -247,6 +364,7 @@ class Dashboard:
     def control_state(self, value):
         self.model.control_state = value
 
+    
     @property
     def pitch(self):
         return self.model.pitch
@@ -254,6 +372,16 @@ class Dashboard:
     @pitch.setter
     def pitch(self, value):
         QTimer.singleShot(0, lambda: self.model.setPitch(value))
+
+    @property
+    def params(self):
+        return self.model.params
+    
+    @params.setter
+    def params(self, value):
+        QTimer.singleShot(0, lambda: self.model.setParams(value))    
+        self.model.params = value.copy()
+
 
     def exec_(self):
         return self.app.exec_()

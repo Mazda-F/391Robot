@@ -15,7 +15,14 @@ class Bluetooth:
             "speed"         : "13012F02-F8C3-4F4A-A8F4-15CD926DA146",
             "yaw"           : "13012F03-F8C3-4F4A-A8F4-15CD926DA146",
             "motor_left"    : "13012F04-F8C3-4F4A-A8F4-15CD926DA146",
-            "motor_right"   : "13012F05-F8C3-4F4A-A8F4-15CD926DA146"
+            "motor_right"   : "13012F05-F8C3-4F4A-A8F4-15CD926DA146",
+            1            : "13012F07-F8C3-4F4A-A8F4-15CD926DA146",
+            2            : "13012F08-F8C3-4F4A-A8F4-15CD926DA146",
+            3            : "13012F09-F8C3-4F4A-A8F4-15CD926DA146",
+            4            : "13012F10-F8C3-4F4A-A8F4-15CD926DA146",
+            5            : "13012F11-F8C3-4F4A-A8F4-15CD926DA146",
+            6            : "13012F12-F8C3-4F4A-A8F4-15CD926DA146",
+            7            : "13012F13-F8C3-4F4A-A8F4-15CD926DA146"
         }
         self.loop = asyncio.new_event_loop()
 
@@ -34,6 +41,7 @@ class Bluetooth:
                     motor_left = self.dashboard.motor_left
                     motor_right = self.dashboard.motor_right
                     control_mode = self.dashboard.control_state
+                    params = self.dashboard.params
                 except Exception as e:
                     print(f"[ERROR] {__class__} Error reading dashboard values:", e)
                     continue
@@ -47,9 +55,11 @@ class Bluetooth:
                 await self.sendCommand(client, speed, self.uuid["speed"])
                 await self.sendCommand(client, yaw, self.uuid["yaw"])
                 await self.sendCommand(client, control_mode, self.uuid["control"])
-                await self.sendCommand(client, motor_left, self.uuid["motor_left"])
-                await self.sendCommand(client, motor_right, self.uuid["motor_right"])
+                # await self.sendCommand(client, motor_left, self.uuid["motor_left"])
+                # await self.sendCommand(client, motor_right, self.uuid["motor_right"])
 
+                for i in range(NUM_PARAMS):
+                    await self.sendCommand(client, params[i], self.uuid[i+1])
                 await asyncio.sleep(0.01)
 
     async def sendCommand(self, client, val, uuid):
@@ -64,6 +74,7 @@ class Bluetooth:
 
 if __name__ == "__main__":
     DEVICE_NAME = "ROBOT_C4"
+    NUM_PARAMS = 7
     dash = Dashboard()
 
     bt = Bluetooth(DEVICE_NAME, dash)

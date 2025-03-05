@@ -5,7 +5,7 @@ QWidget {
 }
 
 QLabel {
-    color: #fff;
+    font-size: 25px;color: white;
 }
 
 QPushButton {
@@ -24,4 +24,9 @@ QPushButton:hover{
     border: 1px #C6C6C6 solid;
     color: #fff;
     background: #c262af;
+}
+
+QLineEdit {
+    color : white;
+    background-color: #5a5a5a;
 }
