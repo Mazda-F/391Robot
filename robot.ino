@@ -8,8 +8,8 @@ void setup() {
 
     Serial.println("Calibrating Encoders...");
     // checkMagnetPresence(&magnetStatus); 
-    degAngle = ReadRawAngle(ENCODER_L);   
-    start_angle = degAngle;  
+    deg_angle = ReadRawAngle(ENCODER_L);   
+    start_angle = deg_angle;  
     prev_angle = start_angle;                
 
     if (!IMU.begin()) { Serial.println("IMU Initialization Failed."); while(1); }
@@ -53,7 +53,7 @@ float getIMUPitch() {
     accelTheta = atan(ay/az) * (180/PI);
     gyro_sample_period = 1 / gyro_sample_rate;
     gyroTheta = accelTheta + gz * gyro_sample_period;
-    return (K_COMP * (gyroTheta) + (1-K_COMP) * accelTheta + 2.0) * PI/180; // Sensor Fusion Using Complementary Filter 
+    return (K_COMP * (gyroTheta) + (1-K_COMP) * accelTheta + 2.0) * PI/180 - 0.04; // Sensor Fusion Using Complementary Filter 
 }
 
 float FIR(float newSample) {
@@ -81,32 +81,56 @@ void pid_IMU() {
     float deltaT = (currentTime - previousTime) / 1000.0;
     previousTime = currentTime;
 
-    theta = getIMUPitch();
-    theta_error = 0.0 - theta;
-    theta_integ += theta_error * deltaT;
-    theta_dot = (theta_error - theta_prev_error) / deltaT;
-    theta_dot = IIR(theta_dot, &theta_dot_prev,  0.7260); // Apply FIR (low pass) filter with exponentially decaying weights to derivative with high frequency noise
+    theta.prop = getIMUPitch();
+    err_theta.prop = 0.0 - theta.prop;
+    err_theta.integ += err_theta.prop * deltaT;
+    err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / deltaT;
+    err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); // Apply FIR (low pass) filter with exponentially decaying weights to derivative with high frequency noise
     
-    float output_t = Kt.Kp * theta_error + Kt.Ki * theta_integ + Kt.Kd * theta_dot;
-
-    wheel_angle = getAngle(start_angle, ENCODER_L);
-    x = getDisplacement(rotations, x_prev, prev_angle, wheel_angle, WHEEL_RADIUS);
-    x_error = 0 - x;
-    x_integ += x_error * deltaT;
-    x_dot = (x-x_prev)/deltaT;
-    x_dot = IIR(x_error, &x_dot_prev, 0.3077);
-
-  
-    float output_x = Kx.Kp * theta_error + Kx.Ki * theta_integ + Kx.Kd * theta_dot;
+    getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle);
+    wheel_angle = total_angle * PI/180.0;
+    x.prop = wheel_angle * WHEEL_RADIUS;
+    prev_angle = wheel_angle;
+    err_x.prop = 0.0 - x.prop;
+    err_x.integ += err_x.prop * deltaT;
+    err_x.deriv = (err_x.prop - err_x.prev_prop) / deltaT;
+    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
+    
+    theta.prev_prop = theta.prop;
+    x.prev_prop = x.prop;
+    
+    
+    float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
+    float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
     
     float output_pid = output_t * Kc + output_x * (1-Kc);
 
 
     if (abs(output_pid) > 3.3) {
-        theta_integ *= 0.01;
-        x_integ *= 0.01;
+        err_theta.integ *= 0.01;
+        err_x.integ *= 0.01;
     }
     drive_motors(output_pid);
+
+
+    sprintf(strbuf, "X: % 7.2f  ", x.prop);
+    sprintf(strbuf2, "Theta: % 7.2f  ", theta.prop);
+    strcat(strbuf, strbuf2);
+    sprintf(strbuf2, "xPID: % 7.2f  ", output_x);
+    strcat(strbuf, strbuf2);
+    sprintf(strbuf2, "tPID: % 7.2f  ", output_t);
+    strcat(strbuf, strbuf2);
+    sprintf(strbuf2, "PID: % 7.2f  ", output_pid);
+    strcat(strbuf, strbuf2);
+    sprintf(strbuf2, "wheel_angle: % 7.2f  ", wheel_angle);
+    strcat(strbuf, strbuf2);
+    sprintf(strbuf2, "num_turns: % 7.2f  ", num_turns);
+    strcat(strbuf, strbuf2);
+    sprintf(strbuf2, "quad_num: % 7.2f  ", quad_num);
+    strcat(strbuf, strbuf2);
+    sprintf(strbuf2, "prev_quad_num: % 7.2f  ", prev_quad_num);
+    strcat(strbuf, strbuf2);
+    Serial.println(strbuf);
 }
 
 
@@ -160,13 +184,14 @@ void drive_motors(float pid_out) {
       }
     }
     else {
-      degAngle = ReadRawAngle(ENCODER_L);   
-      start_angle = degAngle;  
-      prev_angle = start_angle;
-      rotations = 0;
-      x = 0.0;
-      x_prev = 0.0; 
-      x_dot = 0.0;
+      // deg_angle = ReadRawAngle(ENCODER_L);   
+      // start_angle = deg_angle;  
+      // prev_angle = start_angle;
+      // rotations = 0;
+      // x.prop = 0.0;
+      // x.prev_prop = 0.0; 
+      // x.deriv = 0.0;
+      // x.prev_deriv = 0.0;
       analogWrite(Motor_L_f, 0);
       analogWrite(Motor_R_f, 0);
       analogWrite(Motor_L_r, 0);

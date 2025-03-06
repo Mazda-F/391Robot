@@ -315,7 +315,7 @@ class Dashboard:
                 vals.append(float(val))
             self.model.params = vals.copy()
         except Exception as e:
-            print(e)
+            self.model.params = [0.0]*NUM_PARAMS
             pass
         self.model.state_changed.emit()
 

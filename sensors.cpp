@@ -2,7 +2,6 @@
 
 
 void checkMagnetPresence(int* magnetStatus) {  
-
     Serial.println("Finding Magnets...");
     //This function runs in the setup() and it locks the MCU until the magnet is not positioned properly
     while((*magnetStatus & 32) != 32) { //while the magnet is not adjusted to the proper distance - 32: MD = 1
@@ -12,9 +11,7 @@ void checkMagnetPresence(int* magnetStatus) {
         Wire.endTransmission(); //end transmission
         Wire.requestFrom(0x36, 1); //request from the sensor
         while(Wire.available() == 0); //wait until it becomes available 
-        *magnetStatus = Wire.read(); //Reading the data after the request
-        //Serial.print("Magnet status: ");
-        //Serial.println(magnetStatus, BIN); //print it in binary so you can compare it to the table (fig 21)      
+        *magnetStatus = Wire.read(); //Reading the data after the request     
     }      
     //Status register output: 0 0 MD ML MH 0 0 0  
     //MH: Too strong magnet - 100111 - DEC: 39 
@@ -73,7 +70,7 @@ float correctAngle(float deg_angle, float start_angle) {
 */
 float ReadRawAngle(uint8_t bus) { 
   Wire.beginTransmission(0x70);  // TCA9548A address is 0x70
-  Wire.write(1 << bus);          // send byte to select bus
+  Wire.write(0x01 << bus);          // send byte to select bus
   Wire.endTransmission();
     // Serial.print(bus);
 
@@ -127,7 +124,7 @@ float getAngle(float start_angle, uint8_t bus) {
 }
 
 
-float getDisplacement(int rotations, float prev_displacement, float prev_angle, float wheel_angle, float wheel_radius) {
+float getDisplacement(int rotations, float prev_angle, float wheel_angle, float wheel_radius) {
     
     if (wheel_angle < 20.0 && prev_angle > 340.0) {
       rotations += 1;
@@ -137,4 +134,52 @@ float getDisplacement(int rotations, float prev_displacement, float prev_angle, 
     }
    
     return (((float)rotations*2.0*PI) + (wheel_angle * PI/180.0)) * wheel_radius; // radius*theta = arclenght
+}
+
+
+void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* prev_quad_num, float start_angle) {
+  float deg_angle, raw_angle, corrected_angle;
+
+  Wire.beginTransmission(ENCODER_ADDRESS); //connect to the sensor
+  Wire.write(0x0D); //figure 21 - register map: Raw angle (7:0)
+  Wire.endTransmission(); //end transmission
+  Wire.requestFrom(ENCODER_ADDRESS, 1); //request from the sensor
+  while(Wire.available() == 0); //wait until it becomes available 
+  int lowbyte = Wire.read(); //Reading the data after the request
+  //11:8 - 4 bits
+  Wire.beginTransmission(ENCODER_ADDRESS);
+  Wire.write(0x0C); //figure 21 - register map: Raw angle (11:8)
+  Wire.endTransmission();
+  Wire.requestFrom(ENCODER_ADDRESS, 1);
+  
+  while(Wire.available() == 0);  
+  word highbyte = Wire.read();
+  highbyte = highbyte << 8; 
+  raw_angle = highbyte | lowbyte; //int is 16 bits (as well as the word)
+  //12 bit -> 4096 different levels: 360° is divided into 4096 equal parts:
+  //360/4096 = 0.087890625
+  deg_angle = (raw_angle) * 0.087890625; 
+
+  corrected_angle = deg_angle - start_angle;
+  if(corrected_angle < 0) { 
+    corrected_angle = corrected_angle + 360.0; 
+  }
+
+  if(corrected_angle >= 0 && corrected_angle <=90) *quad_num = 1;
+  if(corrected_angle > 90 && corrected_angle <=180) *quad_num = 2;
+  if(corrected_angle > 180 && corrected_angle <=270) *quad_num = 3;
+  if(corrected_angle > 270 && corrected_angle <360) *quad_num = 4;
+  int qn = *quad_num;
+  int prev_qn = *prev_quad_num;
+  if(qn != prev_qn) {   //if we changed quadrant
+      if(qn == 1 && prev_qn == 4){
+          num_turns++; // 4 --> 1 transition: CW rotation
+      }
+      if(qn == 4 && prev_qn == 1){
+          num_turns--; // 1 --> 4 transition: CCW rotation
+      }
+      //this could be done between every quadrants so one can count every 1/4th of transition
+      prev_quad_num = quad_num;  //update to the current quadrant
+  }  
+  *total_angle = ((*num_turns)*360) + corrected_angle;
 }

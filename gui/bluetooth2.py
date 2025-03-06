@@ -9,6 +9,8 @@ class Bluetooth:
     def __init__(self, device_name, dashboard: Dashboard):
         self.device_name = device_name
         self.dashboard = dashboard
+        self.service_uuid = "180A"
+        self.pitch_uuid = "13012F01-F8C3-4F4A-A8F4-15CD926DA146"
         self.uuid = {
             "pitch"         : "13012F01-F8C3-4F4A-A8F4-15CD926DA146",
             "control"       : "13012F06-F8C3-4F4A-A8F4-15CD926DA146",
@@ -34,7 +36,7 @@ class Bluetooth:
         print(f"[INFO] Bluetooth successfully connected to: {device}")
         async with BleakClient(device) as client:
             while True:
-                pitch_data = await client.read_gatt_char(self.pitch_angle_uuid)
+                # pitch_data = await client.read_gatt_char(self.pitch_uuid)
                 try:
                     yaw = self.dashboard.yaw
                     speed = self.dashboard.speed
@@ -46,11 +48,11 @@ class Bluetooth:
                     print(f"[ERROR] {__class__} Error reading dashboard values:", e)
                     continue
 
-                try:
-                    pitch_value = float(pitch_data.decode('utf-8'))
-                    self.dashboard.pitch = pitch_value
-                except Exception as e:
-                    print(f"[ERROR] {__class__} Error updating pitch:", e)
+                # try:
+                #     pitch_value = float(pitch_data.decode('utf-8'))
+                #     self.dashboard.pitch = pitch_value
+                # except Exception as e:
+                #     print(f"[ERROR] {__class__} Error updating pitch:", e)
 
                 await self.sendCommand(client, speed, self.uuid["speed"])
                 await self.sendCommand(client, yaw, self.uuid["yaw"])
@@ -62,7 +64,7 @@ class Bluetooth:
                     await self.sendCommand(client, params[i], self.uuid[i+1])
                 await asyncio.sleep(0.01)
 
-    async def sendCommand(self, client, val, uuid):
+    async def sendCommand(self, client : BleakClient, val, uuid):
         val_str = str(val)
         val_bytes = bytearray(val_str, encoding="utf-8")
         await client.write_gatt_char(uuid, val_bytes, response=True)
