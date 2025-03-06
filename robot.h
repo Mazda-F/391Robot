@@ -12,7 +12,7 @@
 #define Motor_L_r D5
 #define SENSOR_PERIOD 0.020
 #define SERIAL_BAUDRATE 9600
-#define I2C_CLOCK_SPEED 800000
+#define I2C_CLOCK_SPEED 800000L
 
 #define ENCODER_L 2
 #define ENCODER_R 7

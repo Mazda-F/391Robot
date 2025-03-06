@@ -126,10 +126,6 @@ void pid_IMU() {
     strcat(strbuf, strbuf2);
     sprintf(strbuf2, "num_turns: % 7.2f  ", num_turns);
     strcat(strbuf, strbuf2);
-    sprintf(strbuf2, "quad_num: % 7.2f  ", quad_num);
-    strcat(strbuf, strbuf2);
-    sprintf(strbuf2, "prev_quad_num: % 7.2f  ", prev_quad_num);
-    strcat(strbuf, strbuf2);
     Serial.println(strbuf);
 }
 

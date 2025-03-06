@@ -165,21 +165,22 @@ void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* pre
     corrected_angle = corrected_angle + 360.0; 
   }
 
-  if(corrected_angle >= 0 && corrected_angle <=90) *quad_num = 1;
-  if(corrected_angle > 90 && corrected_angle <=180) *quad_num = 2;
-  if(corrected_angle > 180 && corrected_angle <=270) *quad_num = 3;
-  if(corrected_angle > 270 && corrected_angle <360) *quad_num = 4;
+  if(corrected_angle >= 0 && corrected_angle <=90) (*quad_num) = 1;
+  if(corrected_angle > 90 && corrected_angle <=180) (*quad_num) = 2;
+  if(corrected_angle > 180 && corrected_angle <=270) (*quad_num) = 3;
+  if(corrected_angle > 270 && corrected_angle <360) (*quad_num) = 4;
   int qn = *quad_num;
   int prev_qn = *prev_quad_num;
   if(qn != prev_qn) {   //if we changed quadrant
       if(qn == 1 && prev_qn == 4){
-          num_turns++; // 4 --> 1 transition: CW rotation
+          (*num_turns) += 1.0; 
+          // 4 --> 1 transition: CW rotation
       }
       if(qn == 4 && prev_qn == 1){
-          num_turns--; // 1 --> 4 transition: CCW rotation
+          (*num_turns) -= 1.0; // 1 --> 4 transition: CCW rotation
       }
       //this could be done between every quadrants so one can count every 1/4th of transition
-      prev_quad_num = quad_num;  //update to the current quadrant
+      *prev_quad_num = *quad_num;  //update to the current quadrant
   }  
   *total_angle = ((*num_turns)*360) + corrected_angle;
 }
