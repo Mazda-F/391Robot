@@ -6,10 +6,10 @@
 #include "sensors.h"
 
 #define PI 3.14159265359
-#define Motor_R_f D3
-#define Motor_R_r D2
-#define Motor_L_f D4
-#define Motor_L_r D5
+#define Motor_R_r D3
+#define Motor_R_f D2
+#define Motor_L_r D4
+#define Motor_L_f D5
 #define SENSOR_PERIOD 0.020
 #define SERIAL_BAUDRATE 9600
 #define I2C_CLOCK_SPEED 800000L
@@ -20,6 +20,9 @@
 #define K_COMP 0.68
 
 #define WHEEL_RADIUS 0.040
+
+#define PWM_H2L 21
+#define PWM_L2H 45
 
 struct K {
   float Kp = 0.0;
@@ -41,7 +44,7 @@ timevar theta;
 timevar x;
 timevar err_theta;
 timevar err_x;
-
+timevar pwm;
 // Encoder variables
 int magnetStatus = 0;                                   //value of the status register (MD, ML, MH)
 float deg_angle; 

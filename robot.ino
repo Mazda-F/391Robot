@@ -113,20 +113,20 @@ void pid_IMU() {
     drive_motors(output_pid);
 
 
-    sprintf(strbuf, "X: % 7.2f  ", x.prop);
-    sprintf(strbuf2, "Theta: % 7.2f  ", theta.prop);
-    strcat(strbuf, strbuf2);
-    sprintf(strbuf2, "xPID: % 7.2f  ", output_x);
-    strcat(strbuf, strbuf2);
-    sprintf(strbuf2, "tPID: % 7.2f  ", output_t);
-    strcat(strbuf, strbuf2);
-    sprintf(strbuf2, "PID: % 7.2f  ", output_pid);
-    strcat(strbuf, strbuf2);
-    sprintf(strbuf2, "wheel_angle: % 7.2f  ", wheel_angle);
-    strcat(strbuf, strbuf2);
-    sprintf(strbuf2, "num_turns: % 7.2f  ", num_turns);
-    strcat(strbuf, strbuf2);
-    Serial.println(strbuf);
+    // sprintf(strbuf, "X: % 7.2f  ", x.prop);
+    // sprintf(strbuf2, "Theta: % 7.2f  ", theta.prop);
+    // strcat(strbuf, strbuf2);
+    // sprintf(strbuf2, "xPID: % 7.2f  ", output_x);
+    // strcat(strbuf, strbuf2);
+    // sprintf(strbuf2, "tPID: % 7.2f  ", output_t);
+    // strcat(strbuf, strbuf2);
+    // sprintf(strbuf2, "PID: % 7.2f  ", output_pid);
+    // strcat(strbuf, strbuf2);
+    // sprintf(strbuf2, "wheel_angle: % 7.2f  ", wheel_angle);
+    // strcat(strbuf, strbuf2);
+    // sprintf(strbuf2, "num_turns: % 7.2f  ", num_turns);
+    // strcat(strbuf, strbuf2);
+    // Serial.println(strbuf);
 }
 
 
@@ -162,10 +162,26 @@ void pid_IMU() {
 
 void drive_motors(float pid_out) {
     int motorSpeed = abs(pid_out/3.3 * 255);
+    int pwm_start = 0;
     // if (isnan(motorSpeed)) {
     //   motorSpeed = 0;
     // } 
+    pwm.prop = motorSpeed;
+    pwm.deriv = (pwm.prop - pwm.prev_prop);
+    pwm.prev_prop = pwm.prop;
+
+    if (pwm.deriv < 0) {
+        pwm_start = PWM_H2L;
+    } 
+    else {
+        pwm_start = PWM_L2H;
+    }
+    
+    // motorSpeed = (int) (255 - pwm_start) * (motorSpeed)/255;
     motorSpeed = constrain(motorSpeed, 0, 255);
+    motorSpeed = map(motorSpeed, 0, 255, pwm_start, 255);
+
+
     if (control_mode) {
       if (pid_out > 0) {
           analogWrite(Motor_L_r, motorSpeed);
@@ -242,22 +258,24 @@ void readBluetoothBLE() {
 
 
 
-// void lqr_iter() {
-//     t1 = millis();
-//     dt = (t1 - t0) / 1000.0;
-//     t0 = t1;
-//     theta = getIMUPitch();
-//     theta_dot = (theta - theta_prev) / dt;
-//     theta_dot = FIR(theta_dot);
-//     wheel_angle = getAngle(start_angle, ENCODER_L);
-//     // Serial.println(wheel_angle);
-//     x = getDisplacement(rotations, x_prev, prev_angle, wheel_angle, WHEEL_RADIUS);
-//     x_dot = (x - x_prev) / dt;
+void lqr() {
+    t1 = micros();
+    dt = (t1 - t0) / 1000000.0;
+    t0 = t1;
+    theta.prop = getIMUPitch();
+    theta.deriv = (theta.prop - theta.prev_prop) / dt;
+    theta.prev_prop = theta.prop;
+    
+    getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle);
+    wheel_angle = total_angle * PI/180.0;
+    x.prop = wheel_angle * WHEEL_RADIUS;
+    x.deriv = (x.prop - x.prev_prop) / dt;
+    x.prev_prop = x.prop;
 
-//     u = x * Kp + x_dot * Ki + theta * Kd + theta_dot * Ko;
-//     Serial.println(u);
-//     drive_motors(u);
-// }
+    u = x.prop * Kt.Kp + x.deriv * Kt.Ki + theta.prop * Kt.Kd + theta.deriv * Kx.Kp;
+    Serial.println(u);
+    drive_motors(u);
+}
 
 
 void loop() {
@@ -269,9 +287,8 @@ void loop() {
 
     while (central.connected()) {  
         // MAIN LOOP RUNTIME <= 25 ms
-        // t0 = micros();
-        // pidLoop();
         pid_IMU();
+        // lqr();
         readBluetoothBLE();
       
     }
