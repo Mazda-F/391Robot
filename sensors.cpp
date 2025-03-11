@@ -1,6 +1,5 @@
 #include "sensors.h"
 
-
 void checkMagnetPresence(int* magnetStatus) {  
     Serial.println("Finding Magnets...");
     //This function runs in the setup() and it locks the MCU until the magnet is not positioned properly
@@ -20,49 +19,6 @@ void checkMagnetPresence(int* magnetStatus) {
     Serial.println("Magnet found!");
     delay(1000);  
 }
-
-void checkQuadrant(float* corrected_angle, float* total_angle, float* num_turns, int* quad_num, int* prev_quad_num) {
-    /*
-    //Quadrants:
-    4  |  1
-    ---|---
-    3  |  2
-    */
-    if(*corrected_angle >= 0 && *corrected_angle <=90) *quad_num = 1;
-    if(*corrected_angle > 90 && *corrected_angle <=180) *quad_num = 2;
-    if(*corrected_angle > 180 && *corrected_angle <=270) *quad_num = 3;
-    if(*corrected_angle > 270 && *corrected_angle <360) *quad_num = 4;
-    int qn = *quad_num;
-    int prev_qn = *prev_quad_num;
-    if(qn != prev_qn) {//if we changed quadrant
-        if(qn == 1 && prev_qn == 4){
-            *num_turns++; // 4 --> 1 transition: CW rotation
-        }
-        if(qn == 4 && prev_qn == 1){
-            *num_turns--; // 1 --> 4 transition: CCW rotation
-        }
-        //this could be done between every quadrants so one can count every 1/4th of transition
-        *prev_quad_num = *quad_num;  //update to the current quadrant
-    }  
-    *total_angle = (*num_turns*360) + *corrected_angle; //number of turns (+/-) plus the actual angle within the 0-360 range
-}
-
-/*
-    #### Params:
-    Input:
-    Output: `corrected_angle` 
-*/
-float correctAngle(float deg_angle, float start_angle) {
-  float corrected_angle;
-  corrected_angle = deg_angle - start_angle; //this tares the position
-  if(corrected_angle < 0) { //if the calculated angle is negative, we need to "normalize" it
-    corrected_angle = corrected_angle + 360.0; //correction for negative numbers (i.e. -15 becomes +345)
-  }
-  else {
-  }
-  return corrected_angle;
-}
-
 
 /*
     ReadRawAngle
@@ -115,25 +71,6 @@ float ReadRawAngle(uint8_t bus) {
   //Serial.print("Deg angle: ");
   //Serial.println(degAngle, 2); //absolute position of the encoder within the 0-360 circle
     return degAngle;
-}
-
-float getAngle(float start_angle, uint8_t bus) {
-    float degAngle =  ReadRawAngle(bus);
-    float corrected_angle = correctAngle(degAngle, start_angle);
-    return corrected_angle;
-}
-
-
-float getDisplacement(int rotations, float prev_angle, float wheel_angle, float wheel_radius) {
-    
-    if (wheel_angle < 20.0 && prev_angle > 340.0) {
-      rotations += 1;
-    }
-    else if (wheel_angle > 340.0 && prev_angle < 20.0){
-      rotations -=1;
-    }
-   
-    return (((float)rotations*2.0*PI) + (wheel_angle * PI/180.0)) * wheel_radius; // radius*theta = arclenght
 }
 
 
