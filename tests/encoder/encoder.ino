@@ -1,5 +1,6 @@
 #include <ArduinoBLE.h>
 #include "Arduino_BMI270_BMM150.h"
+#include "sensors.h"
 
 #define SERIAL_BAUDRATE 115200
 #define I2C_CLOCK_SPEED 800000L

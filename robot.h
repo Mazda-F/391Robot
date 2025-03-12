@@ -1,17 +1,17 @@
 #include <ArduinoBLE.h>
 #include "Arduino_BMI270_BMM150.h"
 #include <math.h>
-#include <Wire.h> 
+// #include <Wire.h> 
 #include "utils.h"
 #include "sensors.h"
 
 #define PI 3.14159265359
-#define Motor_R_f D3
-#define Motor_R_r D2
+#define Motor_R_f D2
+#define Motor_R_r D3
 #define Motor_L_f D4
 #define Motor_L_r D5
 #define SENSOR_PERIOD 0.020
-#define SERIAL_BAUDRATE 9600
+#define SERIAL_BAUDRATE 115200
 #define I2C_CLOCK_SPEED 800000L
 
 #define ENCODER_L 2
