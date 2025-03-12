@@ -1,144 +1,86 @@
+#!/usr/bin/env python3
 import asyncio
 from bleak import BleakClient, BleakScanner
-import random
-import struct
-import threading 
-import queue
+import threading
 from dashboard import Dashboard
-from multiprocessing.connection import Listener
-import multiprocessing as mp
 
 
 class Bluetooth:
-    """
-    Async Bluetooth connection class with the Arduino BLE:
-
-    Use with asyncio
-
-    Example:
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        bt = Bluetooth(event_queue, device_name="ROBOT_C4")
-        asyncio.ensure_future(bt.run())
-        loop.run_forever()
-
-    """
-    def __init__(self, queue : queue.Queue, device_name, lock : threading.Lock, writelock : threading.Lock, input : Dashboard):
-        self.queue = queue
-        self.lock = lock
-        self.writelock = writelock
-        self.input = input
+    def __init__(self, device_name, dashboard: Dashboard):
         self.device_name = device_name
+        self.dashboard = dashboard
         self.service_uuid = "180A"
-        self.pitch_angle_uuid = "13012F01-F8C3-4F4A-A8F4-15CD926DA146"
-        self.control_uuid = "13012F06-F8C3-4F4A-A8F4-15CD926DA146"
-        self.speed_uuid = "13012F02-F8C3-4F4A-A8F4-15CD926DA146"
-        self.yaw_uuid = "13012F03-F8C3-4F4A-A8F4-15CD926DA146"
-
-        self.k1_uuid = "13012F07-F8C3-4F4A-A8F4-15CD926DA146"
-        self.k2_uuid = "13012F08-F8C3-4F4A-A8F4-15CD926DA146"
-        self.k3_uuid = "13012F09-F8C3-4F4A-A8F4-15CD926DA146"
-        self.k4_uuid = "13012F10-F8C3-4F4A-A8F4-15CD926DA146"
-        self.k5_uuid = "13012F11-F8C3-4F4A-A8F4-15CD926DA146"
-        self.k6_uuid = "13012F12-F8C3-4F4A-A8F4-15CD926DA146"
-        self.k7_uuid = "13012F13-F8C3-4F4A-A8F4-15CD926DA146"
-        self.event_loop = asyncio.get_event_loop()
+        self.pitch_uuid = "13012F01-F8C3-4F4A-A8F4-15CD926DA146"
+        self.uuid = {
+            "pitch"         : "13012F01-F8C3-4F4A-A8F4-15CD926DA146",
+            "control"       : "13012F06-F8C3-4F4A-A8F4-15CD926DA146",
+            "speed"         : "13012F02-F8C3-4F4A-A8F4-15CD926DA146",
+            "yaw"           : "13012F03-F8C3-4F4A-A8F4-15CD926DA146",
+            "motor_left"    : "13012F04-F8C3-4F4A-A8F4-15CD926DA146",
+            "motor_right"   : "13012F05-F8C3-4F4A-A8F4-15CD926DA146",
+            1            : "13012F07-F8C3-4F4A-A8F4-15CD926DA146",
+            2            : "13012F08-F8C3-4F4A-A8F4-15CD926DA146",
+            3            : "13012F09-F8C3-4F4A-A8F4-15CD926DA146",
+            4            : "13012F10-F8C3-4F4A-A8F4-15CD926DA146",
+            5            : "13012F11-F8C3-4F4A-A8F4-15CD926DA146",
+            6            : "13012F12-F8C3-4F4A-A8F4-15CD926DA146",
+            7            : "13012F13-F8C3-4F4A-A8F4-15CD926DA146"
+        }
+        self.loop = asyncio.new_event_loop()
 
     async def run(self):
-        self.device = await BleakScanner.find_device_by_name(self.device_name)
-        print(self.device)
-
-        async with BleakClient(self.device) as client:
-            print(client)
-            # services = await client.get_services()
-            # for service in services:
-            #     print(service)
-            #     for char in service.characteristics:
-            #         print("  ", char, char.properties)
+        device = await BleakScanner.find_device_by_name(self.device_name)
+        if not device:
+            print(f"[ERROR] {__class__} Device not found")
+            return
+        print(f"[INFO] Bluetooth successfully connected to: {device}")
+        async with BleakClient(device) as client:
             while True:
-                # pitch = await client.read_gatt_char(self.pitch_angle_uuid)
-                
+                # pitch_data = await client.read_gatt_char(self.pitch_uuid)
                 try:
-                    while not self.lock.acquire(blocking=False):
-                        asyncio.sleep(0.001)
-                        pass
-                    yaw = self.input.yaw
-                    speed = self.input.speed 
-                    # motor_left = self.input.motor_left
-                    # motor_right = self.input.motor_right
-                    control_mode = self.input.control_state
-                    K1 = self.input.K1
-                    K2 = self.input.K2
-                    K3 = self.input.K3
-                    K4 = self.input.K4
-                    K5 = self.input.K5
-                    K6 = self.input.K6
-                    K7 = self.input.K7
+                    yaw = self.dashboard.yaw
+                    speed = self.dashboard.speed
+                    motor_left = self.dashboard.motor_left
+                    motor_right = self.dashboard.motor_right
+                    control_mode = self.dashboard.control_state
+                    params = self.dashboard.params
+                except Exception as e:
+                    print(f"[ERROR] {__class__} Error reading dashboard values:", e)
+                    continue
 
-                    self.lock.release()
-                        
-                    # with self.lock: 
-                    #     yaw = self.input.yaw
-                    #     speed = self.input.speed   
-                except Exception:
-                    pass
+                # try:
+                #     pitch_value = float(pitch_data.decode('utf-8'))
+                #     self.dashboard.pitch = pitch_value
+                # except Exception as e:
+                #     print(f"[ERROR] {__class__} Error updating pitch:", e)
 
-                try:
-                    with self.writelock: 
-                        # self.input.pitch = pitch.decode('utf-8')
-                        pass
-                except Exception:
-                    pass
-            
+                await self.sendCommand(client, speed, self.uuid["speed"])
+                await self.sendCommand(client, yaw, self.uuid["yaw"])
+                await self.sendCommand(client, control_mode, self.uuid["control"])
+                # await self.sendCommand(client, motor_left, self.uuid["motor_left"])
+                # await self.sendCommand(client, motor_right, self.uuid["motor_right"])
 
-                await self.sendCommand(client, speed, self.speed_uuid)
-                await self.sendCommand(client, yaw, self.yaw_uuid)
-                await self.sendCommand(client, K1, self.k1_uuid)
-                await self.sendCommand(client, K2, self.k2_uuid)
-                await self.sendCommand(client, K3, self.k3_uuid)
-                await self.sendCommand(client, K4, self.k4_uuid)
-                await self.sendCommand(client, K5, self.k5_uuid)
-                await self.sendCommand(client, K6, self.k6_uuid)
-                await self.sendCommand(client, K7, self.k7_uuid)
-                await self.sendCommand(client, control_mode, self.control_uuid)
-
-                await asyncio.sleep(0.001)
+                for i in range(NUM_PARAMS):
+                    await self.sendCommand(client, params[i], self.uuid[i+1])
+                await asyncio.sleep(0.01)
 
     async def sendCommand(self, client : BleakClient, val, uuid):
         val_str = str(val)
-        val_bytes = bytearray(val_str, encoding="utf-8") 
+        val_bytes = bytearray(val_str, encoding="utf-8")
         await client.write_gatt_char(uuid, val_bytes, response=True)
 
-
     def start(self):
-        try:
-            asyncio.ensure_future(self.run())
-            self.event_loop.run_forever()
-        except KeyboardInterrupt:
-            print('\nReceived Keyboard Interrupt')
-        finally:
-            print('Program finished')
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_until_complete(self.run())
 
 
 if __name__ == "__main__":
     DEVICE_NAME = "ROBOT_C4"
-    event_queue = queue.Queue(1)
-    lock = threading.Lock()
-    lock2 = threading.Lock()
+    NUM_PARAMS = 7
+    dash = Dashboard()
 
-    dash = Dashboard(event_queue, lock, lock2)  
+    bt = Bluetooth(DEVICE_NAME, dash)
+    bt_thread = threading.Thread(target=bt.start, daemon=True)
+    bt_thread.start()
 
-    def start_asyncio_loop():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        bt = Bluetooth(event_queue, "ROBOT_C4", lock, lock2, dash)
-        asyncio.ensure_future(bt.run())
-        loop.run_forever()
-
-    ble_thread = threading.Thread(target=start_asyncio_loop, daemon=True)
-    ble_thread.start()
-
-    dash.root.mainloop()
-
-    exit(0) 
+    dash.exec_()
