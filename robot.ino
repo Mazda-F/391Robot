@@ -3,12 +3,8 @@
 void setup() {
     Serial.begin(SERIAL_BAUDRATE);
     Serial.println("Serial Started ...");
-    Wire.begin(); // i2c                                        
-    Wire.setClock(I2C_CLOCK_SPEED);  
 
     Serial.println("Calibrating Encoders...");
-    // checkMagnetPresence(&magnetStatus); 
-    deg_angle = ReadRawAngle(ENCODER_L);   
     start_angle = deg_angle;  
     prev_angle = start_angle;                
 
@@ -87,30 +83,30 @@ void pid_IMU() {
     err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / deltaT;
     err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); // Apply FIR (low pass) filter with exponentially decaying weights to derivative with high frequency noise
     
-    getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle);
-    wheel_angle = total_angle * PI/180.0;
-    x.prop = wheel_angle * WHEEL_RADIUS;
-    prev_angle = wheel_angle;
-    err_x.prop = 0.0 - x.prop;
-    err_x.integ += err_x.prop * deltaT;
-    err_x.deriv = (err_x.prop - err_x.prev_prop) / deltaT;
-    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
+    // getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle);
+    // wheel_angle = total_angle * PI/180.0;
+    // x.prop = wheel_angle * WHEEL_RADIUS;
+    // prev_angle = wheel_angle;
+    // err_x.prop = 0.0 - x.prop;
+    // err_x.integ += err_x.prop * deltaT;
+    // err_x.deriv = (err_x.prop - err_x.prev_prop) / deltaT;
+    // err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
     
     theta.prev_prop = theta.prop;
-    x.prev_prop = x.prop;
+    // x.prev_prop = x.prop;
     
     
     float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
-    float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
+    // float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
     
-    float output_pid = output_t * Kc + output_x * (1-Kc);
+    // float output_pid = output_t * Kc + output_x * (1-Kc);
 
 
-    if (abs(output_pid) > 3.3) {
+    if (abs(output_t) > 3.3) {
         err_theta.integ *= 0.01;
-        err_x.integ *= 0.01;
+        // err_x.integ *= 0.01;
     }
-    drive_motors(output_pid);
+    drive_motors(output_t);
 
 
     // sprintf(strbuf, "X: % 7.2f  ", x.prop);
@@ -128,37 +124,6 @@ void pid_IMU() {
     // strcat(strbuf, strbuf2);
     // Serial.println(strbuf);
 }
-
-
-
-// void pid_ENCODER() {
-//     unsigned long currentTime = millis();
-//     float deltaT = (currentTime - previousTime) / 1000.0;
-//     previousTime = currentTime;
-
-
-
-//     if (abs(error) < 3) {
-//         integral = 0;
-//     }
-// }
-
-// void motorControl() {
-//     int motorSpeed = map(abs(output), 0, PID_output_max, 0, 255);
-//     motorSpeed = constrain(motorSpeed, 0, 255);
-
-//     if (output > 0) {
-//         analogWrite(Motor_L_r, motorSpeed);
-//         analogWrite(Motor_R_r, motorSpeed);
-//         analogWrite(Motor_L_f, 0);
-//         analogWrite(Motor_R_f, 0);
-//     } else {
-//         analogWrite(Motor_L_f, motorSpeed);
-//         analogWrite(Motor_R_f, motorSpeed);
-//         analogWrite(Motor_L_r, 0);
-//         analogWrite(Motor_R_r, 0);
-//     }
-// }
 
 void drive_motors(float pid_out) {
     int motorSpeed = abs(pid_out/3.3 * 255);
@@ -288,7 +253,6 @@ void loop() {
     while (central.connected()) {  
         // MAIN LOOP RUNTIME <= 25 ms
         pid_IMU();
-        // lqr();
         readBluetoothBLE();
       
     }
@@ -300,15 +264,3 @@ void loop() {
     Serial.println("Central device disconnected!");
     } 
 }
-
-
-
-
-
-// void loop() {
-//     // updatePIDfromSerial(&Kp, &Ki, &Kd, &integral, &previousError, &previousTime, &PID_output_max);
-//     pidLoop();
-    
-
-    
-// }
