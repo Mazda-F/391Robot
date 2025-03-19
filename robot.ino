@@ -1,16 +1,98 @@
-#include "robot.h"
+#include <ArduinoBLE.h>
+#include "Arduino_BMI270_BMM150.h"
+#include <math.h>
+#include <Wire.h> 
+
+#define Motor_R_f D3
+#define Motor_R_r D2
+#define Motor_L_f D5
+#define Motor_L_r D4
+#define SENSOR_PERIOD 0.020
+#define SERIAL_BAUDRATE 9600
+#define I2C_CLOCK_SPEED 800000L
+
+// IMU
+#define K_COMP 0.95
+#define IMU_BETA 0.9
+bool init_gyro_flag = true;
+float ax, ay, az, gx, gy, gz, a_angle, g_angle;
+float ax_prev, ay_prev, az_prev = 0.0;
+float g_angle_z, g_angle_dz, a_angle_z, comp_angle_z;
+double angle_dt;
+unsigned long angle_prev_time, angle_curr_time;
+float g_sample_period;
+
+// Wheel Encoder
+#define ENCODER_L 2
+#define ENCODER_R 7
+#define WHEEL_RADIUS 0.040
+#define ENCODER_ADDRESS 0x36
+int quad_num = 0;                              // quadrant IDs
+int prev_quad_num = 0;                         // these are used for tracking the num_turns
+float start_angle = 0;                                                         
+float prev_angle = 0.0;
+float wheel_angle = 0.0;
+float num_turns = 0;
+float total_angle = 0.0;
+float deg_angle; 
+float encoderTimer = 0;
+
+// PID 
+float Kc = 0.0;
+float pid_dt = 0;
+unsigned long pid_prev_time = 0;
+unsigned long pid_curr_time = 0;
+struct K { float Kp = 0.0; float Ki = 0.0; float Kd = 0.0; };
+struct timevar { float integ; float prop = 0.0; float deriv; 
+    float prev_prop = 0.0; float prev_deriv = 0.0;
+};
+K Kt;
+K Kx;
+timevar theta;
+timevar x;
+timevar err_theta;
+timevar err_x;
+timevar pwm;
+
+// FIR 
+#define FILTER_ORDER 10  
+#define BETA 0.24       
+#define LAMBDA 0.5                      // Decay rate
+float accelBuffer[FILTER_ORDER] = {0};  // Buffer to store past values
+
+// Debugging 
+char strbuf[200];
+char strbuf2[100];
+
+// TimerDecorator imutimer("IMU_TIMER");
+enum mode {
+  IDLE, RUN
+};
+
+// Bluetooth
+int control_mode = 0; // default manual
+BLEService nanoService("13012F00-F8C3-4F4A-A8F4-15CD926DA146");
+BLEStringCharacteristic pitch_char("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic speed_char("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16); 
+BLEStringCharacteristic yaw_char("13012F03-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic control_com("13012F06-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic K1_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic K2_com("13012F08-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic K3_com("13012F09-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic K4_com("13012F10-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic K5_com("13012F11-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic K6_com("13012F12-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic K7_com("13012F13-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 
 void setup() {
     Serial.begin(SERIAL_BAUDRATE);
     Serial.println("Serial Started ...");
-
     Serial.println("Calibrating Encoders...");
+
     start_angle = deg_angle;  
     prev_angle = start_angle;                
-
     if (!IMU.begin()) { Serial.println("IMU Initialization Failed."); while(1); }
     if (!BLE.begin()) { Serial.println("Starting Bluetooth Low Energy Module Failed."); while (1);}
-
     pinMode(Motor_L_f, OUTPUT);
     pinMode(Motor_L_r, OUTPUT);
     pinMode(Motor_R_f, OUTPUT);
@@ -31,55 +113,72 @@ void setup() {
     BLE.addService(nanoService);
     BLE.advertise();
     Serial.println("BLE advertising...");
-
-    t0 = millis();
-    t1 = t0;
+    pid_curr_time = millis();
+    pid_prev_time = pid_curr_time;
 }
 
-
-/*
-    Returns the angle in RADIANS
-*/
-// float getIMUPitch() {
-//     float ax, ay, az, gx, gy, gz;
-//     float accelTheta, gyro_sample_rate, gyro_sample_period, gyroTheta;
-//     IMU.readAcceleration(ax, ay, az);
-//     IMU.readGyroscope(gx, gy, gz);
-//     gyro_sample_rate = IMU.gyroscopeSampleRate();
-//     accelTheta = atan(ay/az) * (180/PI);
-//     gyro_sample_period = 1 / gyro_sample_rate;
-//     gyroTheta = accelTheta + gz * gyro_sample_period;
-//     return (K_COMP * (gyroTheta) + (1-K_COMP) * accelTheta + 2.0) * PI/180 - 0.04; // Sensor Fusion Using Complementary Filter 
-// }
-
-float getAngle() {
-    IMU.readAcceleration(ay, ax, az);
-    zAngle_a = atan2(-ax, az) * 180.0 / M_PI;
-
-    if (initGyro) {
-        zAngle_g = zAngle_a;
-        zAngle_comp = zAngle_a;
-        initGyro = 0;
+void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* prev_quad_num, float start_angle) {
+    float deg_angle, raw_angle, corrected_angle;
+    Wire.beginTransmission(ENCODER_ADDRESS); 
+    Wire.write(0x0D); 
+    Wire.endTransmission(); 
+    Wire.requestFrom(ENCODER_ADDRESS, 1); 
+    while(Wire.available() == 0); // blocking
+    int lowbyte = Wire.read(); 
+    Wire.beginTransmission(ENCODER_ADDRESS);
+    Wire.write(0x0C);
+    Wire.endTransmission();
+    Wire.requestFrom(ENCODER_ADDRESS, 1);
+    
+    while(Wire.available() == 0);  
+    word highbyte = Wire.read();
+    highbyte = highbyte << 8; 
+    raw_angle = highbyte | lowbyte;  
+    deg_angle = (raw_angle) * 0.087890625;  // 360/(2^12) = 360/4096 = 0.087890625
+    corrected_angle = deg_angle - start_angle;
+    if(corrected_angle < 0) { 
+      corrected_angle = corrected_angle + 360.0; 
     }
+  
+    if(corrected_angle >= 0 && corrected_angle <=90) (*quad_num) = 1;
+    if(corrected_angle > 90 && corrected_angle <=180) (*quad_num) = 2;
+    if(corrected_angle > 180 && corrected_angle <=270) (*quad_num) = 3;
+    if(corrected_angle > 270 && corrected_angle <360) (*quad_num) = 4;
+    int qn = *quad_num;
+    int prev_qn = *prev_quad_num;
+    if(qn != prev_qn) {  
+        if(qn == 1 && prev_qn == 4){
+              (*num_turns) += 1.0;  // 4 --> 1 transition: CW rotation
+        }
+        if(qn == 4 && prev_qn == 1){
+              (*num_turns) -= 1.0; // 1 --> 4 transition: CCW rotation
+        }
+        *prev_quad_num = *quad_num; 
+    }  
+    *total_angle = ((*num_turns)*360) + corrected_angle;
+  }
 
-    IMU.readGyroscope(xSpeed, ySpeed, zSpeed);
-    current_time = millis();
-    dtime = (current_time - prev_time) / 1000.0;
-    prev_time = current_time;
+float getAngle(float pitch) {
+    IMU.readAcceleration(ax, ay, az);
+    // ay = IIR(ay, &ay_prev, IMU_BETA);
+    // az = IIR(az, &az_prev, IMU_BETA);
+    // a_angle = atan2(ay, az) * 180.0 / M_PI;
+    a_angle = atan(ay/az) * 180.0 / M_PI;
+    IMU.readGyroscope(gx, gy, gz);
 
-    dzAngle_g = dtime * xSpeed;
-    zAngle_g += dzAngle_g;
+    angle_curr_time = millis();
+    angle_dt = (angle_curr_time - angle_prev_time) / 1000.0;
+    angle_prev_time = angle_curr_time;
 
-    zAngle_comp = K_COMP * (zAngle_comp + dzAngle_g) + (1.0 - K_COMP) * zAngle_a;
-
-    return -zAngle_comp;
+    g_angle = pitch - angle_dt * gz;
+    return K_COMP * (g_angle) + (1.0 - K_COMP) * a_angle;
 }
 
 float FIR(float newSample) {
     float sum = 0, weightSum = 0;
     for (int i = FILTER_ORDER - 1; i > 0; i--) {
         accelBuffer[i] = accelBuffer[i - 1];
-        float weight = exp(-Beta * i);
+        float weight = exp(-BETA * i);
         sum += accelBuffer[i] * weight;
         weightSum += weight;
     }
@@ -95,44 +194,37 @@ float IIR(float newSample, float *previousValue, float beta) {
     return filterVal;
 }
 
-void pid_IMU() {
-    unsigned long currentTime = millis();
-    float deltaT = (currentTime - previousTime) / 1000.0;
-    previousTime = currentTime;
-
-    // theta.prop = getIMUPitch();
-    theta.prop = getAngle();
+void PID_step() {
+    pid_curr_time = millis();
+    pid_dt = (pid_curr_time - pid_prev_time) / 1000.0;
+    pid_prev_time = pid_curr_time;
+    theta.prop = getAngle(theta.prop);
     err_theta.prop = 0.0 - theta.prop;
-    err_theta.integ += err_theta.prop * deltaT;
-    err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / deltaT;
-    err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); // Apply FIR (low pass) filter with exponentially decaying weights to derivative with high frequency noise
-    
+    err_theta.integ += err_theta.prop * pid_dt;
+    err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / pid_dt;
+    err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); 
+
     // getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle);
-    // wheel_angle = total_angle * PI/180.0;
+    // wheel_angle = total_angle * M_PI/180.0;
     // x.prop = wheel_angle * WHEEL_RADIUS;
     // prev_angle = wheel_angle;
     // err_x.prop = 0.0 - x.prop;
-    // err_x.integ += err_x.prop * deltaT;
-    // err_x.deriv = (err_x.prop - err_x.prev_prop) / deltaT;
+    // err_x.integ += err_x.prop * pid_dt;
+    // err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
     // err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
-    
-    theta.prev_prop = theta.prop;
-    // x.prev_prop = x.prop;
-    
     
     float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
     // float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
-    
     // float output_pid = output_t * Kc + output_x * (1-Kc);
 
-
-    if (abs(output_t) > 3.3) {
-        err_theta.integ *= 0.01;
-        // err_x.integ *= 0.01;
-    }
-    drive_motors(output_t);
-
-
+    theta.prev_prop = theta.prop;
+    // x.prev_prop = x.prop;
+    
+    Serial.print(-20);
+    Serial.print(" ");
+    Serial.print(20);
+    Serial.print(" ");
+    Serial.println(theta.prop);
     // sprintf(strbuf, "X: % 7.2f  ", x.prop);
     // sprintf(strbuf2, "Theta: % 7.2f  ", theta.prop);
     // strcat(strbuf, strbuf2);
@@ -147,41 +239,27 @@ void pid_IMU() {
     // sprintf(strbuf2, "num_turns: % 7.2f  ", num_turns);
     // strcat(strbuf, strbuf2);
     // Serial.println(strbuf);
+    // Serial.print("\n");
+    driveMotors(output_t);  
 }
 
-void drive_motors(float pid_out) {
-    // int motorSpeed = abs(pid_out/3.3 * 255);
-    // int motorSpeed = abs(pid_out/3.3 * 255);
-    // int pwm_start = 0;
-    // if (isnan(motorSpeed)) {
-    //   motorSpeed = 0;
-    // } 
-
-    // if (pwm.deriv < 0) {
-    //     pwm_start = PWM_H2L;
-    // } 
-    // else {
-    //     pwm_start = PWM_L2H;
-    // }
-    
-    // motorSpeed = (int) (255 - pwm_start) * (motorSpeed)/255;
+void driveMotors(float pid_out) {
     int motorSpeed = (int) abs(pid_out);
-    motorSpeed = constrain(motorSpeed, 0, 3.3);
-    motorSpeed = map(motorSpeed, 0, 3.3, 5, 255);
-
+    motorSpeed = constrain(motorSpeed, 0, 255);
+    motorSpeed = map(motorSpeed, 0, 255, 7, 255);
 
     if (control_mode) {
-      if (pid_out > 0) {
-          analogWrite(Motor_L_r, 255-motorSpeed);
-          analogWrite(Motor_R_r, 255-motorSpeed);
-          analogWrite(Motor_L_f, 255);
-          analogWrite(Motor_R_f, 255);
-      } else {
-          analogWrite(Motor_L_f, 255-motorSpeed);
-          analogWrite(Motor_R_f, 255-motorSpeed);
-          analogWrite(Motor_L_r, 255);
-          analogWrite(Motor_R_r, 255);
-      }
+        if (pid_out > 0) {
+            analogWrite(Motor_L_r, 255-motorSpeed);
+            analogWrite(Motor_R_r, 255-motorSpeed);
+            analogWrite(Motor_L_f, 255);
+            analogWrite(Motor_R_f, 255);
+        } else {
+            analogWrite(Motor_L_f, 255-motorSpeed);
+            analogWrite(Motor_R_f, 255-motorSpeed);
+            analogWrite(Motor_L_r, 255);
+            analogWrite(Motor_R_r, 255);
+        }
     }
     else {
       // deg_angle = ReadRawAngle(ENCODER_L);   
@@ -199,19 +277,7 @@ void drive_motors(float pid_out) {
     }
 }
 
-// float LQR_calc(float x, float xdot, float t, float tdot) {
-//     float output;
-//     float K0 = 3541;
-//     float K1 = -80.8;
-//     float K2 = 68.3;
-//     float K3 = -3.5;
-
-//     output = x*K0 + xdot*K1 + t*K2 + tdot*K3;
-
-//     return output;
-// }
-
-void readBluetoothBLE() {
+void bluetooth() {
     String control_mode_str = control_com.value();
     String K1 = K1_com.value();
     String K2 = K2_com.value();
@@ -228,41 +294,28 @@ void readBluetoothBLE() {
     float K5_in = K5.toFloat();
     float K6_in = K6.toFloat();
     float K7_in = K7.toFloat();
-    // if (isnan(Kp_in)) Kp_in = 0;
-    // if (isnan(Ki_in)) Ki_in = 0;
-    // if (isnan(Kd_in)) Kd_in = 0;
     Kt.Kp = K1_in;
     Kt.Ki = K2_in;
     Kt.Kd = K3_in;
-
     Kx.Kp = K4_in;
     Kx.Ki = K5_in;
     Kx.Kd = K6_in;
-
     Kc = K7_in;
-
-    // Kprint4(Kp, Ki, Kd, Ko);
 }
-
 
 void loop() {
     BLEDevice central = BLE.central(); 
-
     if (central) {
         Serial.print("Connected to central: ");
         Serial.println(central.address());
-
-    while (central.connected()) {  
-        // MAIN LOOP RUNTIME <= 25 ms
-        pid_IMU();
-        readBluetoothBLE();
-      
-    }
-    analogWrite(Motor_L_f, 0);
-    analogWrite(Motor_R_f, 0);
-    analogWrite(Motor_L_r, 0);
-    analogWrite(Motor_R_r, 0);
-
-    Serial.println("Central device disconnected!");
+        while (central.connected()) {  
+            PID_step();
+            bluetooth();
+        }
+        analogWrite(Motor_L_f, 255);
+        analogWrite(Motor_R_f, 255);
+        analogWrite(Motor_L_r, 255);
+        analogWrite(Motor_R_r, 255);
+        Serial.println("Central device disconnected!");
     } 
 }
