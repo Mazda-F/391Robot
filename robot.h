@@ -6,8 +6,8 @@
 #include "sensors.h"
 
 #define PI 3.14159265359
-#define Motor_R_r D3
-#define Motor_R_f D2
+#define Motor_R_r D2
+#define Motor_R_f D3
 #define Motor_L_r D4
 #define Motor_L_f D5
 #define SENSOR_PERIOD 0.020
@@ -17,7 +17,7 @@
 #define ENCODER_L 2
 #define ENCODER_R 7
 
-#define K_COMP 0.68
+#define K_COMP 0.9
 
 #define WHEEL_RADIUS 0.040
 
@@ -49,6 +49,13 @@ timevar pwm;
 int magnetStatus = 0;                                   //value of the status register (MD, ML, MH)
 float deg_angle; 
 int rotations = 0;
+
+float ax, ay, az, gx, gy, gz;
+float xSpeed, ySpeed, zSpeed, xAcc, yAcc, zAcc;
+unsigned long prev_time, current_time;
+double dtime;
+float zAngle_g, dzAngle_g, zAngle_a, zAngle_comp;
+int initGyro;
 
 float start_angle = 0;                                   // starting angle                         
 float prev_angle = 0.0;

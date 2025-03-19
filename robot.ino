@@ -40,16 +40,39 @@ void setup() {
 /*
     Returns the angle in RADIANS
 */
-float getIMUPitch() {
-    float ax, ay, az, gx, gy, gz;
-    float accelTheta, gyro_sample_rate, gyro_sample_period, gyroTheta;
-    IMU.readAcceleration(ax, ay, az);
-    IMU.readGyroscope(gx, gy, gz);
-    gyro_sample_rate = IMU.gyroscopeSampleRate();
-    accelTheta = atan(ay/az) * (180/PI);
-    gyro_sample_period = 1 / gyro_sample_rate;
-    gyroTheta = accelTheta + gz * gyro_sample_period;
-    return (K_COMP * (gyroTheta) + (1-K_COMP) * accelTheta + 2.0) * PI/180 - 0.04; // Sensor Fusion Using Complementary Filter 
+// float getIMUPitch() {
+//     float ax, ay, az, gx, gy, gz;
+//     float accelTheta, gyro_sample_rate, gyro_sample_period, gyroTheta;
+//     IMU.readAcceleration(ax, ay, az);
+//     IMU.readGyroscope(gx, gy, gz);
+//     gyro_sample_rate = IMU.gyroscopeSampleRate();
+//     accelTheta = atan(ay/az) * (180/PI);
+//     gyro_sample_period = 1 / gyro_sample_rate;
+//     gyroTheta = accelTheta + gz * gyro_sample_period;
+//     return (K_COMP * (gyroTheta) + (1-K_COMP) * accelTheta + 2.0) * PI/180 - 0.04; // Sensor Fusion Using Complementary Filter 
+// }
+
+float getAngle() {
+    IMU.readAcceleration(ay, ax, az);
+    zAngle_a = atan2(-ax, az) * 180.0 / M_PI;
+
+    if (initGyro) {
+        zAngle_g = zAngle_a;
+        zAngle_comp = zAngle_a;
+        initGyro = 0;
+    }
+
+    IMU.readGyroscope(xSpeed, ySpeed, zSpeed);
+    current_time = millis();
+    dtime = (current_time - prev_time) / 1000.0;
+    prev_time = current_time;
+
+    dzAngle_g = dtime * xSpeed;
+    zAngle_g += dzAngle_g;
+
+    zAngle_comp = K_COMP * (zAngle_comp + dzAngle_g) + (1.0 - K_COMP) * zAngle_a;
+
+    return -zAngle_comp;
 }
 
 float FIR(float newSample) {
@@ -77,7 +100,8 @@ void pid_IMU() {
     float deltaT = (currentTime - previousTime) / 1000.0;
     previousTime = currentTime;
 
-    theta.prop = getIMUPitch();
+    // theta.prop = getIMUPitch();
+    theta.prop = getAngle();
     err_theta.prop = 0.0 - theta.prop;
     err_theta.integ += err_theta.prop * deltaT;
     err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / deltaT;
@@ -126,38 +150,37 @@ void pid_IMU() {
 }
 
 void drive_motors(float pid_out) {
-    int motorSpeed = abs(pid_out/3.3 * 255);
-    int pwm_start = 0;
+    // int motorSpeed = abs(pid_out/3.3 * 255);
+    // int motorSpeed = abs(pid_out/3.3 * 255);
+    // int pwm_start = 0;
     // if (isnan(motorSpeed)) {
     //   motorSpeed = 0;
     // } 
-    pwm.prop = motorSpeed;
-    pwm.deriv = (pwm.prop - pwm.prev_prop);
-    pwm.prev_prop = pwm.prop;
 
-    if (pwm.deriv < 0) {
-        pwm_start = PWM_H2L;
-    } 
-    else {
-        pwm_start = PWM_L2H;
-    }
+    // if (pwm.deriv < 0) {
+    //     pwm_start = PWM_H2L;
+    // } 
+    // else {
+    //     pwm_start = PWM_L2H;
+    // }
     
     // motorSpeed = (int) (255 - pwm_start) * (motorSpeed)/255;
-    motorSpeed = constrain(motorSpeed, 0, 255);
-    motorSpeed = map(motorSpeed, 0, 255, pwm_start, 255);
+    int motorSpeed = (int) abs(pid_out);
+    motorSpeed = constrain(motorSpeed, 0, 3.3);
+    motorSpeed = map(motorSpeed, 0, 3.3, 5, 255);
 
 
     if (control_mode) {
       if (pid_out > 0) {
-          analogWrite(Motor_L_r, motorSpeed);
-          analogWrite(Motor_R_r, motorSpeed);
-          analogWrite(Motor_L_f, 0);
-          analogWrite(Motor_R_f, 0);
+          analogWrite(Motor_L_r, 255-motorSpeed);
+          analogWrite(Motor_R_r, 255-motorSpeed);
+          analogWrite(Motor_L_f, 255);
+          analogWrite(Motor_R_f, 255);
       } else {
-          analogWrite(Motor_L_f, motorSpeed);
-          analogWrite(Motor_R_f, motorSpeed);
-          analogWrite(Motor_L_r, 0);
-          analogWrite(Motor_R_r, 0);
+          analogWrite(Motor_L_f, 255-motorSpeed);
+          analogWrite(Motor_R_f, 255-motorSpeed);
+          analogWrite(Motor_L_r, 255);
+          analogWrite(Motor_R_r, 255);
       }
     }
     else {
@@ -169,10 +192,10 @@ void drive_motors(float pid_out) {
       // x.prev_prop = 0.0; 
       // x.deriv = 0.0;
       // x.prev_deriv = 0.0;
-      analogWrite(Motor_L_f, 0);
-      analogWrite(Motor_R_f, 0);
-      analogWrite(Motor_L_r, 0);
-      analogWrite(Motor_R_r, 0);
+      analogWrite(Motor_L_f, 255);
+      analogWrite(Motor_R_f, 255);
+      analogWrite(Motor_L_r, 255);
+      analogWrite(Motor_R_r, 255);
     }
 }
 
@@ -219,27 +242,6 @@ void readBluetoothBLE() {
     Kc = K7_in;
 
     // Kprint4(Kp, Ki, Kd, Ko);
-}
-
-
-
-void lqr() {
-    t1 = micros();
-    dt = (t1 - t0) / 1000000.0;
-    t0 = t1;
-    theta.prop = getIMUPitch();
-    theta.deriv = (theta.prop - theta.prev_prop) / dt;
-    theta.prev_prop = theta.prop;
-    
-    getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle);
-    wheel_angle = total_angle * PI/180.0;
-    x.prop = wheel_angle * WHEEL_RADIUS;
-    x.deriv = (x.prop - x.prev_prop) / dt;
-    x.prev_prop = x.prop;
-
-    u = x.prop * Kt.Kp + x.deriv * Kt.Ki + theta.prop * Kt.Kd + theta.deriv * Kx.Kp;
-    Serial.println(u);
-    drive_motors(u);
 }
 
 
