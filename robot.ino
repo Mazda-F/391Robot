@@ -1,7 +1,7 @@
 #include <ArduinoBLE.h>
-#include "Arduino_BMI270_BMM150.h"
 #include <math.h>
 #include <Wire.h> 
+#include "bmi270.h"
 
 #define Motor_R_f D3
 #define Motor_R_r D2
@@ -9,22 +9,39 @@
 #define Motor_L_r D4
 #define SENSOR_PERIOD 0.020
 #define SERIAL_BAUDRATE 9600
-#define I2C_CLOCK_SPEED 800000L
+#define I2C_CLOCK_SPEED 400000L
+
+#define INC_ADDRESS 0x68 //I2C 7bit address
+#define CMD 0x7E
+#define PWR_CTRL 0x7D
+#define PWR_CONF 0x7C
+#define ACC 0x40
+#define GYRO 0x42
+#define CHIP 0x00
+#define DATA 0x0C
+#define DRDY 0x1D
+#define STATUS 0x03
+#define WIRE Wire1 // Be careful!
 
 // IMU
 #define K_COMP 0.95
 #define IMU_BETA 0.9
 bool init_gyro_flag = true;
+
+int16_t ax16, ay16, az16, gx16, gy16, gz16;
+
 float ax, ay, az, gx, gy, gz, a_angle, g_angle;
 float ax_prev, ay_prev, az_prev = 0.0;
 float g_angle_z, g_angle_dz, a_angle_z, comp_angle_z;
 double angle_dt;
 unsigned long angle_prev_time, angle_curr_time;
 float g_sample_period;
+float g_angle_prev;
 
 // Wheel Encoder
 #define ENCODER_L 2
-#define ENCODER_R 7
+#define ENCODER_R 0
+#define MUX_ADDRESS 0x70
 #define WHEEL_RADIUS 0.040
 #define ENCODER_ADDRESS 0x36
 int quad_num = 0;                              // quadrant IDs
@@ -43,8 +60,8 @@ float pid_dt = 0;
 unsigned long pid_prev_time = 0;
 unsigned long pid_curr_time = 0;
 struct K { float Kp = 0.0; float Ki = 0.0; float Kd = 0.0; };
-struct timevar { float integ; float prop = 0.0; float deriv; 
-    float prev_prop = 0.0; float prev_deriv = 0.0;
+struct timevar { float integ = 0.0; float prop = 0.0; float deriv = 0.0; float dd = 0.0;  
+    float prev_prop = 0.0; float prev_deriv = 0.0; float prev_dd = 0.0; float temp1 = 0.0; float temp2 = 0.0; float temp3 = 0.0;
 };
 K Kt;
 K Kx;
@@ -84,14 +101,109 @@ BLEStringCharacteristic K5_com("13012F11-F8C3-4F4A-A8F4-15CD926DA146", BLERead |
 BLEStringCharacteristic K6_com("13012F12-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 BLEStringCharacteristic K7_com("13012F13-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 
+
+uint8_t readRegister8(uint8_t reg) {
+    WIRE.beginTransmission(INC_ADDRESS);
+    WIRE.write(reg);
+    WIRE.endTransmission(false);
+    WIRE.requestFrom(INC_ADDRESS, 1);  
+    return WIRE.read();
+}
+
+void writeRegister8(uint16_t reg, uint8_t value) {
+    WIRE.beginTransmission(INC_ADDRESS);
+    WIRE.write(reg);
+    WIRE.write(value);
+    WIRE.endTransmission();
+}
+
+void initIMU(){
+    WIRE.begin();
+    WIRE.setClock(400000);
+    // initialization
+    writeRegister8(PWR_CONF, 0x00); 
+    delay(50);
+    writeRegister8(0x59, 0x00);
+    // load config
+    for (int i=0; i<256; i++)
+    {
+        writeRegister8(0x5B, 0x00);
+        writeRegister8(0x5C, i);
+
+        WIRE.beginTransmission(INC_ADDRESS);
+        WIRE.write(0x5E);
+        WIRE.write(&bmi270_config_file[i*32], 32);
+        WIRE.endTransmission();    
+        delay(1);
+    }
+    writeRegister8(0x59, 0x01);
+    // configuration
+    writeRegister8(PWR_CTRL, 0x06); //enable
+    writeRegister8(ACC, 0xAC); //ACC_CONF
+    writeRegister8(0x41, 0x02); //ACC_CONF
+    writeRegister8(GYRO, 0xE9); //GYRO_CONF
+    writeRegister8(PWR_CONF, 0x02); //disable power saving
+}
+
+void readIMU() {
+    WIRE.beginTransmission(INC_ADDRESS);
+    WIRE.write(DATA);
+    WIRE.endTransmission();
+    WIRE.requestFrom(INC_ADDRESS, 12);
+  
+    ax16 =             (WIRE.read()   | WIRE.read() << 8); 
+    ay16 =             (WIRE.read()   | WIRE.read() << 8); 
+    az16 =             (WIRE.read()   | WIRE.read() << 8); 
+    gx16 =             (WIRE.read()   | WIRE.read() << 8); 
+    gy16 =             (WIRE.read()   | WIRE.read() << 8); 
+    gz16 =             (WIRE.read()   | WIRE.read() << 8); 
+}
+
+float readRawAngle(int bus) {
+    float deg_angle, raw_angle, corrected_angle;
+    Wire.beginTransmission(MUX_ADDRESS);
+    Wire.write(1<<bus);
+    Wire.endTransmission();
+
+    Wire.beginTransmission(0x36);                         //connect to the sensor
+    Wire.write(0x0D);                                     //figure 21 - register map: Raw angle (7:0)
+    Wire.endTransmission();                               //end transmission
+    Wire.requestFrom(0x36, 1);                            //request from the sensor
+    while (Wire.available() == 0);                        //wait until it becomes available
+    int lowbyte = Wire.read();                                //Reading the data after the request
+
+    // ----- read high-order bits 11:8
+    Wire.beginTransmission(0x36);
+    Wire.write(0x0C);                                     //figure 21 - register map: Raw angle (11:8)
+    Wire.endTransmission();
+    Wire.requestFrom(0x36, 1);
+    while (Wire.available() == 0);
+    word highbyte = Wire.read();
+
+    // ----- combine bytes
+    highbyte = highbyte << 8;                             // shift highbyte to left
+    raw_angle = highbyte | lowbyte;                        // combine bytes to get 12-bit value 11:0
+    deg_angle = raw_angle * 0.087890625;                    // 360/4096 = 0.087890625
+
+    //Serial.print("Deg angle: ");
+    //Serial.println(degAngle, 2);                          //absolute position of the encoder within the 0-360 circle
+    return deg_angle;
+}
+
 void setup() {
     Serial.begin(SERIAL_BAUDRATE);
     Serial.println("Serial Started ...");
     Serial.println("Calibrating Encoders...");
 
-    start_angle = deg_angle;  
+    Wire.begin();                                         // start i2C
+    Wire.setClock(I2C_CLOCK_SPEED);     
+
+    
+    start_angle = readRawAngle(ENCODER_L);  
     prev_angle = start_angle;                
-    if (!IMU.begin()) { Serial.println("IMU Initialization Failed."); while(1); }
+    // if (!IMU.begin()) { Serial.println("IMU Initialization Failed."); while(1); }
+    initIMU();
+
     if (!BLE.begin()) { Serial.println("Starting Bluetooth Low Energy Module Failed."); while (1);}
     pinMode(Motor_L_f, OUTPUT);
     pinMode(Motor_L_r, OUTPUT);
@@ -117,8 +229,13 @@ void setup() {
     pid_prev_time = pid_curr_time;
 }
 
-void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* prev_quad_num, float start_angle) {
+void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* prev_quad_num, float start_angle, int bus) {
     float deg_angle, raw_angle, corrected_angle;
+    
+    Wire.beginTransmission(MUX_ADDRESS);
+    Wire.write(1<<bus);
+    Wire.endTransmission();
+
     Wire.beginTransmission(ENCODER_ADDRESS); 
     Wire.write(0x0D); 
     Wire.endTransmission(); 
@@ -159,20 +276,33 @@ void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* pre
   }
 
 float getAngle(float pitch) {
-    IMU.readAcceleration(ax, ay, az);
+    // IMU.readAcceleration(ax, ay, az);
     // ay = IIR(ay, &ay_prev, IMU_BETA);
     // az = IIR(az, &az_prev, IMU_BETA);
     // a_angle = atan2(ay, az) * 180.0 / M_PI;
-    a_angle = atan(ay/az) * 180.0 / M_PI;
-    IMU.readGyroscope(gx, gy, gz);
+    // IMU.readGyroscope(gx, gy, gz);
+    
+    readIMU();
+    ax = (float) ax16;
+    ay = (float) ay16;
+    az = (float) az16;
+    gx = (float) gx16;
+    gy = (float) gy16;
+    gz = (float) gz16;
+    
+    ax = IIR(ax, &ay_prev, IMU_BETA);
+    az = IIR(az, &az_prev, IMU_BETA);
 
+    a_angle = atan(ax/az) * 180.0 / M_PI;
     angle_curr_time = millis();
     angle_dt = (angle_curr_time - angle_prev_time) / 1000.0;
     angle_prev_time = angle_curr_time;
 
-    g_angle = pitch - angle_dt * gz;
+    g_angle = pitch + angle_dt * gx;
+
     return K_COMP * (g_angle) + (1.0 - K_COMP) * a_angle;
 }
+
 
 float FIR(float newSample) {
     float sum = 0, weightSum = 0;
@@ -204,9 +334,24 @@ void PID_step() {
     err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / pid_dt;
     err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); 
 
-    // getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle);
-    // wheel_angle = total_angle * M_PI/180.0;
-    // x.prop = wheel_angle * WHEEL_RADIUS;
+    getWheelAngle(&total_angle, &num_turns, &quad_num, &prev_quad_num, start_angle, ENCODER_L);
+    wheel_angle = total_angle * M_PI/180.0;
+    x.prop = wheel_angle * WHEEL_RADIUS;
+
+    x.prop = IIR(x.prop, &x.temp3, 0.2);
+
+    x.deriv = (x.prop - x.prev_prop) / pid_dt;
+    x.deriv = IIR(x.deriv, &x.temp1, 0.3);
+
+    x.dd = (x.deriv - x.prev_deriv) / pid_dt;
+    x.dd = IIR(x.dd, &x.temp2, 0.95);
+    
+    x.prev_prop = x.prop;
+    x.prev_deriv = x.deriv;
+    x.prev_dd = x.dd;
+
+
+
     // prev_angle = wheel_angle;
     // err_x.prop = 0.0 - x.prop;
     // err_x.integ += err_x.prop * pid_dt;
@@ -220,11 +365,25 @@ void PID_step() {
     theta.prev_prop = theta.prop;
     // x.prev_prop = x.prop;
     
-    Serial.print(-20);
+    // Serial.print(-20);
+    // Serial.print(" ");
+    // Serial.print(20);
+    // Serial.print(" ");
+    // Serial.print(theta.prop);
+    // Serial.print(" ");
+    // Serial.print(a_angle);
+    // Serial.print(" ");
+    // Serial.print(g_angle);
+    // Serial.print(" ");
+    Serial.print(ax*9.81/4096);
     Serial.print(" ");
-    Serial.print(20);
+    Serial.print(x.prop);
     Serial.print(" ");
-    Serial.println(theta.prop);
+    Serial.print(x.deriv);
+    Serial.print(" ");
+    Serial.print(x.dd);
+    Serial.print(" ");
+    Serial.println(ax*9.81/4096 +- x.dd);
     // sprintf(strbuf, "X: % 7.2f  ", x.prop);
     // sprintf(strbuf2, "Theta: % 7.2f  ", theta.prop);
     // strcat(strbuf, strbuf2);
