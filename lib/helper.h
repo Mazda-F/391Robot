@@ -1,7 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#include <Arduino.h>
+#include <ArduinoBLE.h>
 
 void Kprint(float Kp, float Ki, float Kd);
 void Kprint4(float Kp, float Ki, float Kd, float Ko);
