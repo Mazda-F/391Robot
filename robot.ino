@@ -11,6 +11,12 @@
 #define SERIAL_BAUDRATE 9600
 #define I2C_CLOCK_SPEED 400000L
 
+#define SENSOR_PERIOD 0.020
+#define SERIAL_BAUDRATE 9600
+#define I2C_CLOCK_SPEED 400000L
+
+#define M_PI acos(-1.0)
+
 #define INC_ADDRESS 0x68 //I2C 7bit address
 #define CMD 0x7E
 #define PWR_CTRL 0x7D
@@ -22,16 +28,20 @@
 #define DRDY 0x1D
 #define STATUS 0x03
 #define WIRE Wire1 // Be careful!
-#define PI 3.14159265
+uint8_t gyr_cas_factor_zx;
+
+#define KCTRL_MATRIX 0.004
+
+#define ACC_STDDEV 3 * M_PI/180
+#define GYR_STDDEV 4 * M_PI/180
 
 // IMU
 #define K_COMP 0.95
 #define IMU_BETA 0.9
+#define INIT_KERROR 2 * M_PI/180
 bool init_gyro_flag = true;
 
 int16_t ax16, ay16, az16, gx16, gy16, gz16;
-uint8_t gyr_cas_factor_zx;
-
 float ax, ay, az, gx, gy, gz, a_angle, g_angle;
 float ax_prev, ay_prev, az_prev = 0.0;
 float g_angle_z, g_angle_dz, a_angle_z, comp_angle_z;
@@ -39,6 +49,13 @@ double angle_dt;
 unsigned long angle_prev_time, angle_curr_time;
 float g_sample_period;
 float g_angle_prev;
+
+float tilt_angle = 0.0; 
+float pitch_a;
+float p_cal, q_cal, r_cal;
+float roll_rps, yaw_rps, pitch_rps;
+float kalman_pitch = 0;
+float kalman_pitch_un = INIT_KERROR*INIT_KERROR;
 
 float kcomp = K_COMP;
 
@@ -180,7 +197,7 @@ void readIMU() {
     WIRE.write(DATA);
     WIRE.endTransmission();
     WIRE.requestFrom(INC_ADDRESS, 12);
-
+  
     ax16 =             (WIRE.read()   | WIRE.read() << 8); 
     ay16 =             (WIRE.read()   | WIRE.read() << 8); 
     az16 =             (WIRE.read()   | WIRE.read() << 8); 
@@ -267,45 +284,39 @@ void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* pre
     *total_angle = ((*num_turns)*360) + corrected_angle;
   }
 
-float getAngle(float pitch) {
+void calibrateIMU() {
+    for (int i = 0; i < 2000; i++) {
+        readIMU();
+        p_cal += ((float) gx16) / 16.384;
+        q_cal += ((float) gy16) / 16.384;
+        r_cal += ((float) gz16) / 16.384;
+        delay(0.2);
+    }
+    p_cal /= 2000;
+    q_cal /= 2000;
+    r_cal /= 2000;
+}
+
+float getAngle() { // returns the angle IN RADIANS
     readIMU();
-    ax = (float) ax16;
-    ay = (float) ay16;
-    az = (float) az16;
-    gx = (float) gx16;
-    gy = (float) gy16;
-    gz = (float) gz16;
-    
-    ax = FIR(ax, ax_vec, fir_coeffs, N_FIR) /4096.0;
-
-    az = FIR(az, az_vec, fir_coeffs, N_FIR) /4096.0;
-    gx /= 16.384;
-    gy /= 16.384;
-    // gz = FIR(gz, gz_vec, fir_coeffs, N_FIR) / 16.384;
-    gz /= 16.384;
-
-    a_angle = atan2(-ax, az) * 180.0 / PI;
-
-    if ((ax*ax + az*az) > 1.1 || (ax*ax + az*az) < 0.9) {
-        kcomp = 1.0;
-    }
-    else {
-        kcomp = K_COMP;
-    }
-
-    if (init_gyro_flag) {
-        g_angle = a_angle;
-        pitch = a_angle;
-        init_gyro_flag = false;
-    }
+    ax = ((float) ax16) / 4096.0;
+    ay = ((float) ay16) / 4096.0;
+    az = ((float) az16) / 4096.0;
+    pitch_rps = ((float) gy16) / 16.384 - q_cal;
+    pitch_rps *= M_PI/180;
 
     angle_curr_time = millis();
     angle_dt = (angle_curr_time - angle_prev_time) / 1000.0;
     angle_prev_time = angle_curr_time;
 
-    g_angle = pitch + angle_dt * gz;
+    pitch_a = atan(-ax/sqrt(ay*ay + az*az));
 
-    return kcomp * g_angle + (1.0 - kcomp) * a_angle;
+    kalman_pitch = kalman_pitch + (float)angle_dt*pitch_rps;
+    kalman_pitch_un = kalman_pitch_un + (float)angle_dt*(float)angle_dt*ACC_STDDEV*ACC_STDDEV;
+    float kgain = kalman_pitch_un *  1/(1*kalman_pitch_un+GYR_STDDEV*GYR_STDDEV);
+    kalman_pitch = kalman_pitch + kgain* (pitch_a - kalman_pitch);
+    kalman_pitch_un = (1-kgain) * kalman_pitch_un;
+    return kalman_pitch;
 }
 
 float FIR(float new_data, float* databuf, float* coeffs, int num_coeffs) {
@@ -329,7 +340,8 @@ void PID_step() {
     pid_curr_time = millis();
     pid_dt = (pid_curr_time - pid_prev_time) / 1000.0;
     pid_prev_time = pid_curr_time;
-    theta.prop = getAngle(theta.prop);
+
+    theta.prop = getAngle() * 180/M_PI;
     theta.prev_prop = theta.prop;
 
     err_theta.prop = 0.0 - theta.prop;
@@ -337,6 +349,9 @@ void PID_step() {
     err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / pid_dt;
     err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); 
 
+    err_theta.prev_prop = err_theta.prop;
+
+    
     getWheelAngle(&lwheel.total_angle, &lwheel.num_turns, &lwheel.quad_num, 
         &lwheel.prev_quad_num, lwheel.start_angle, ENCODER_L);
     getWheelAngle(&rwheel.total_angle, &rwheel.num_turns, &rwheel.quad_num, 
@@ -367,14 +382,18 @@ void PID_step() {
     yaw.prev_deriv = yaw.deriv;
     yaw.prev_dd = yaw.dd;
 
-    // err_x.prop = 0.0 - x.prop;
-    // err_x.integ += err_x.prop * pid_dt;
-    // err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
-    // err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
     
+
+    err_x.prop = 0.0 - x.prop;
+    err_x.integ += err_x.prop * pid_dt;
+    err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
+    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
+    
+    err_x.prev_prop = err_x.prop;
+
     float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
-    // float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
-    // float output_pid = output_t * Kc + output_x * (1-Kc);
+    float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
+    float output_pid = output_t * Kc + output_x * (1-Kc);
 
     
  
@@ -385,9 +404,15 @@ void PID_step() {
     Serial.print(" ");
     Serial.print(theta.prop);
     Serial.print(" ");
-    Serial.print(a_angle);
+    Serial.print(err_theta.integ);
     Serial.print(" ");
-    Serial.print(g_angle);
+    Serial.print(Kt.Ki);
+    Serial.print(" ");
+    Serial.print(1.0/pid_dt);
+    Serial.print(" ");
+    //Serial.print(a_angle);
+    //Serial.print(" ");
+    //Serial.print(g_angle);
     // Serial.print(" ");
     // Serial.print(yaw.dd*180.0/PI);
     // Serial.print(" ");
@@ -421,7 +446,7 @@ void PID_step() {
     // Serial.println(strbuf);
     // Serial.print("\n");
     Serial.println(" ");
-    driveMotors(output_t);  
+    driveMotors(output_pid);  
 }
 
 void driveMotors(float pid_out) {
@@ -455,6 +480,10 @@ void driveMotors(float pid_out) {
       analogWrite(Motor_R_f, 255);
       analogWrite(Motor_L_r, 255);
       analogWrite(Motor_R_r, 255);
+
+      err_theta.integ = 0;
+      err_x.integ = 0;
+
     }
 }
 
@@ -497,6 +526,7 @@ void setup() {
     lwheel.prev_angle = lwheel.start_angle;                
     rwheel.prev_angle = rwheel.start_angle;                
     initIMU();
+    calibrateIMU();
 
     if (!BLE.begin()) { Serial.println("Starting Bluetooth Low Energy Module Failed."); while (1);}
     pinMode(Motor_L_f, OUTPUT);
