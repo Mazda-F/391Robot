@@ -38,7 +38,7 @@ uint8_t gyr_cas_factor_zx;
 // IMU
 #define K_COMP 0.95
 #define IMU_BETA 0.9
-#define INIT_KERROR 2 * M_PI/180
+#define INIT_KERROR 3 * M_PI/180
 bool init_gyro_flag = true;
 
 int16_t ax16, ay16, az16, gx16, gy16, gz16;
@@ -309,13 +309,14 @@ float getAngle() { // returns the angle IN RADIANS
     angle_dt = (angle_curr_time - angle_prev_time) / 1000.0;
     angle_prev_time = angle_curr_time;
 
-    pitch_a = atan(-ax/sqrt(ay*ay + az*az));
+    pitch_a = atan(-ax/sqrt(ay*ay + az*az)) + 0.7 * M_PI/180.0;
 
     kalman_pitch = kalman_pitch + (float)angle_dt*pitch_rps;
     kalman_pitch_un = kalman_pitch_un + (float)angle_dt*(float)angle_dt*ACC_STDDEV*ACC_STDDEV;
     float kgain = kalman_pitch_un *  1/(1*kalman_pitch_un+GYR_STDDEV*GYR_STDDEV);
     kalman_pitch = kalman_pitch + kgain* (pitch_a - kalman_pitch);
     kalman_pitch_un = (1-kgain) * kalman_pitch_un;
+
     return kalman_pitch;
 }
 
@@ -393,22 +394,23 @@ void PID_step() {
 
     float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
     float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
-    float output_pid = output_t * Kc + output_x * (1-Kc);
+    // float output_pid = output_t * Kc + output_x * (1-Kc);
+    float output_pid = output_t + output_x;
 
     
  
     
-    Serial.print(-20);
-    Serial.print(" ");
-    Serial.print(20);
-    Serial.print(" ");
+    // Serial.print(-20);
+    // Serial.print(" ");
+    // Serial.print(20);
+    // Serial.print(" ");
     Serial.print(theta.prop);
     Serial.print(" ");
-    Serial.print(err_theta.integ);
+    Serial.print(output_t);
     Serial.print(" ");
-    Serial.print(Kt.Ki);
+    Serial.print(x.prop);
     Serial.print(" ");
-    Serial.print(1.0/pid_dt);
+    Serial.print(output_x);
     Serial.print(" ");
     //Serial.print(a_angle);
     //Serial.print(" ");
@@ -483,8 +485,24 @@ void driveMotors(float pid_out) {
 
       err_theta.integ = 0;
       err_x.integ = 0;
+        
+        lwheel.total_angle = 0.0;
+        lwheel.num_turns = 0; 
+        lwheel.prev_quad_num = 0;
+        lwheel.deg_angle = 0.0;
+        lwheel.x = 0.0;
+        lwheel.quad_num = 0;
 
+        rwheel.total_angle = 0.0;
+        rwheel.num_turns = 0; 
+        rwheel.prev_quad_num = 0;
+        rwheel.deg_angle = 0.0;
+        rwheel.x = 0.0;
+        rwheel.quad_num = 0;
+   
     }
+
+    
 }
 
 void bluetooth() {
