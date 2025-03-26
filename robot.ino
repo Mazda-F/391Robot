@@ -2,15 +2,12 @@
 #include <math.h>
 #include <Wire.h> 
 #include "bmi270.h"
+ 
 
 #define Motor_R_f D2
 #define Motor_R_r D3
 #define Motor_L_f D4
 #define Motor_L_r D5
-#define SENSOR_PERIOD 0.020
-#define SERIAL_BAUDRATE 9600
-#define I2C_CLOCK_SPEED 400000L
-
 #define SENSOR_PERIOD 0.020
 #define SERIAL_BAUDRATE 9600
 #define I2C_CLOCK_SPEED 400000L
@@ -30,7 +27,7 @@
 #define WIRE Wire1 // Be careful!
 uint8_t gyr_cas_factor_zx;
 
-#define KCTRL_MATRIX 0.004
+#define KCTRL_MATRIX 0.004 
 
 #define ACC_STDDEV 3 * M_PI/180
 #define GYR_STDDEV 4 * M_PI/180
@@ -38,7 +35,7 @@ uint8_t gyr_cas_factor_zx;
 // IMU
 #define K_COMP 0.95
 #define IMU_BETA 0.9
-#define INIT_KERROR 3 * M_PI/180
+#define INIT_KERROR 2 * M_PI/180
 bool init_gyro_flag = true;
 
 int16_t ax16, ay16, az16, gx16, gy16, gz16;
@@ -49,6 +46,7 @@ double angle_dt;
 unsigned long angle_prev_time, angle_curr_time;
 float g_sample_period;
 float g_angle_prev;
+float comp_angle;
 
 float tilt_angle = 0.0; 
 float pitch_a;
@@ -187,9 +185,10 @@ void initIMU(){
     writeRegister8(PWR_CTRL, 0x06); //enable
     writeRegister8(ACC, 0xAC); //ACC_CONF
     writeRegister8(0x41, 0x02); //ACC_CONF
-    writeRegister8(GYRO, 0xE9); //GYRO_CONF
+    writeRegister8(GYRO, 0xE9); //GYRO_CONF  // 0xE9
     writeRegister8(PWR_CONF, 0x02); //disable power saving
     gyr_cas_factor_zx = (readRegister8(0x3C) & 0b01111111);
+    delay(1000);
 }
 
 void readIMU() {
@@ -309,7 +308,7 @@ float getAngle() { // returns the angle IN RADIANS
     angle_dt = (angle_curr_time - angle_prev_time) / 1000.0;
     angle_prev_time = angle_curr_time;
 
-    pitch_a = atan(-ax/sqrt(ay*ay + az*az)) + 0.7 * M_PI/180.0;
+    pitch_a = atan(-ax/sqrt(ay*ay + az*az));
 
     kalman_pitch = kalman_pitch + (float)angle_dt*pitch_rps;
     kalman_pitch_un = kalman_pitch_un + (float)angle_dt*(float)angle_dt*ACC_STDDEV*ACC_STDDEV;
@@ -342,7 +341,8 @@ void PID_step() {
     pid_dt = (pid_curr_time - pid_prev_time) / 1000.0;
     pid_prev_time = pid_curr_time;
 
-    theta.prop = getAngle() * 180/M_PI;
+    // theta.prop = getAngle() * 180/M_PI;
+    theta.prop = getAngle();
     theta.prev_prop = theta.prop;
 
     err_theta.prop = 0.0 - theta.prop;
@@ -404,7 +404,7 @@ void PID_step() {
     // Serial.print(" ");
     // Serial.print(20);
     // Serial.print(" ");
-    Serial.print(theta.prop);
+    Serial.print(theta.prop * 180.0/M_PI);
     Serial.print(" ");
     Serial.print(output_t);
     Serial.print(" ");
@@ -412,9 +412,9 @@ void PID_step() {
     Serial.print(" ");
     Serial.print(output_x);
     Serial.print(" ");
-    //Serial.print(a_angle);
-    //Serial.print(" ");
-    //Serial.print(g_angle);
+    Serial.print(pitch_a);
+    Serial.print(" ");
+    // Serial.print(g_angle);
     // Serial.print(" ");
     // Serial.print(yaw.dd*180.0/PI);
     // Serial.print(" ");
@@ -536,6 +536,7 @@ void setup() {
     Serial.println("Serial Started ...");
     Serial.println("Calibrating Encoders...");
 
+    
     Wire.begin();                                         // start i2C
     Wire.setClock(I2C_CLOCK_SPEED);     
 
@@ -581,6 +582,8 @@ void setup() {
     for (int i = 0; i < N_FIR; i++) gz_vec[i] = 0.0;
     for (int i = 0; i < N_FIR; i++) l_encoder_vec[i] = 0.0;
     for (int i = 0; i < N_FIR; i++) r_encoder_vec[i] = 0.0;
+    
+    
 
 
 }
