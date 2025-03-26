@@ -83,6 +83,7 @@ struct timevar { float integ = 0.0; float prop = 0.0; float deriv = 0.0; float d
 
 K Kt;
 K Kx;
+K Ky;
 timevar theta;
 timevar x;
 timevar yaw;
@@ -118,19 +119,25 @@ enum mode {
 };
 
 // Bluetooth
+#define DIN_COUNT 9
+#define DIN_BUFSIZE 4*DIN_COUNT
 int control_mode = 0; // default manual
+float bt_din_buff[16];
 BLEService nanoService("13012F00-F8C3-4F4A-A8F4-15CD926DA146");
 BLEStringCharacteristic pitch_char("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 BLEStringCharacteristic speed_char("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16); 
 BLEStringCharacteristic yaw_char("13012F03-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 BLEStringCharacteristic control_com("13012F06-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic K1_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic K2_com("13012F08-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic K3_com("13012F09-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic K4_com("13012F10-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic K5_com("13012F11-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic K6_com("13012F12-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic K7_com("13012F13-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+
+BLEStringCharacteristic din_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, DIN_BUFSIZE);
+
+// BLEStringCharacteristic K1_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+// BLEStringCharacteristic K2_com("13012F08-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+// BLEStringCharacteristic K3_com("13012F09-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+// BLEStringCharacteristic K4_com("13012F10-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+// BLEStringCharacteristic K5_com("13012F11-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+// BLEStringCharacteristic K6_com("13012F12-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+// BLEStringCharacteristic K7_com("13012F13-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
 
 
 uint8_t readRegister8(uint8_t reg) {
@@ -404,16 +411,16 @@ void PID_step() {
     // Serial.print(" ");
     // Serial.print(theta.prop * 180.0/M_PI);
     // Serial.print(" ");
-    Serial.print(yaw.prop);
-    Serial.print(" ");
-    Serial.print(x.prop);
-    Serial.print(" ");
+    // Serial.print(yaw.prop);
+    // Serial.print(" ");
+    // Serial.print(x.prop);
+    // Serial.print(" ");
     // Serial.print(g_angle);
     // Serial.print(" ");
     // Serial.print(yaw.dd*180.0/PI);
     // Serial.print(" ");
     // Serial.print(yaw.dd*180.0/PI - theta.prop);
-    Serial.println(" ");
+    // Serial.println(" ");
     driveMotors(output_pid);  
 }
 
@@ -436,14 +443,6 @@ void driveMotors(float pid_out) {
         }
     }
     else {
-        // deg_angle = ReadRawAngle(ENCODER_L);   
-        // start_angle = deg_angle;  
-        // prev_angle = start_angle;
-        // rotations = 0;
-        // x.prop = 0.0;
-        // x.prev_prop = 0.0; 
-        // x.deriv = 0.0;
-        // x.prev_deriv = 0.0;
         analogWrite(Motor_L_f, 255);
         analogWrite(Motor_R_f, 255);
         analogWrite(Motor_L_r, 255);
@@ -472,28 +471,28 @@ void driveMotors(float pid_out) {
 
 void bluetooth() {
     String control_mode_str = control_com.value();
-    String K1 = K1_com.value();
-    String K2 = K2_com.value();
-    String K3 = K3_com.value();
-    String K4 = K4_com.value();
-    String K5 = K5_com.value();
-    String K6 = K6_com.value();
-    String K7 = K7_com.value();
+    String din_str = din_com.value();
     control_mode = control_mode_str.toInt();
-    float K1_in = K1.toFloat();
-    float K2_in = K2.toFloat();
-    float K3_in = K3.toFloat();
-    float K4_in = K4.toFloat();
-    float K5_in = K5.toFloat();
-    float K6_in = K6.toFloat();
-    float K7_in = K7.toFloat();
-    Kt.Kp = K1_in;
-    Kt.Ki = K2_in;
-    Kt.Kd = K3_in;
-    Kx.Kp = K4_in;
-    Kx.Ki = K5_in;
-    Kx.Kd = K6_in;
-    Kc = K7_in;
+    
+    // Serial.print(din_str);
+    for (int i = 0; i < DIN_COUNT; i++) {
+        bt_din_buff[i] = din_str.substring(12 + 4*i, 12 + 4*i+4).toFloat();
+        Serial.print(bt_din_buff[i]); 
+        Serial.print("\t"); 
+    }
+
+    Serial.println(" ");
+
+    Kt.Kp = bt_din_buff[0];
+    Kt.Ki = bt_din_buff[1];
+    Kt.Kd = bt_din_buff[2];
+    Kx.Kp = bt_din_buff[3];
+    Kx.Ki = bt_din_buff[4];
+    Kx.Kd = bt_din_buff[5];
+    Ky.Kp = bt_din_buff[6];
+    Ky.Ki = bt_din_buff[7];
+    Ky.Kd = bt_din_buff[8];
+
 }
 
 void setup() {
@@ -523,13 +522,7 @@ void setup() {
     nanoService.addCharacteristic(speed_char);
     nanoService.addCharacteristic(yaw_char);
     nanoService.addCharacteristic(control_com);
-    nanoService.addCharacteristic(K1_com);
-    nanoService.addCharacteristic(K2_com);
-    nanoService.addCharacteristic(K3_com);
-    nanoService.addCharacteristic(K4_com);
-    nanoService.addCharacteristic(K5_com);
-    nanoService.addCharacteristic(K6_com);
-    nanoService.addCharacteristic(K7_com);
+    nanoService.addCharacteristic(din_com);
     BLE.addService(nanoService);
     BLE.advertise();
     Serial.println("BLE advertising...");
