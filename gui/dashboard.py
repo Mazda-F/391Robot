@@ -95,7 +95,6 @@ class DashboardModel(QObject):
 class DashboardView(QMainWindow):
     arrow_key_pressed = pyqtSignal(str)
     arrow_key_released = pyqtSignal(str)
-    slider_changed = pyqtSignal()
     toggle_clicked = pyqtSignal()
     params_changed = pyqtSignal()
 
@@ -133,32 +132,8 @@ class DashboardView(QMainWindow):
         grid.addWidget(self.label_yaw, 3,0,1,3)
         grid.addWidget(self.label_pitch, 4,0,1,3)
 
-
-        self.slider_left = QSlider(Qt.Vertical, self)
-        self.slider_left.setRange(-10, 10)
-        self.slider_left.setValue(0)
-        self.slider_left.setTickInterval(5)
-        self.slider_left.setTickPosition(QSlider.TicksBothSides)
-
-        self.slider_right = QSlider(Qt.Vertical, self)
-        self.slider_right.setRange(-10, 10)
-        self.slider_right.setValue(0)
-        self.slider_right.setTickInterval(5)
-        self.slider_right.setTickPosition(QSlider.TicksBothSides)
-
-        grid.addWidget(self.slider_left, 5, 0)
-        grid.addWidget(self.slider_right, 5, 2)
-
-        self.label_lm = QLabel("L", self)
-        self.label_rm = QLabel("R", self)
-        self.label_lm.setAlignment(Qt.AlignCenter)
-        self.label_rm.setAlignment(Qt.AlignCenter)
-        grid.addWidget(self.label_lm, 6, 0)
-        grid.addWidget(self.label_rm, 6, 2)
-
-
         self.toggle_button = QPushButton("Toggle Motor ON", self)
-        grid.addWidget(self.toggle_button, 7, 1)
+        grid.addWidget(self.toggle_button, 5, 1)
         self.toggle_button.clicked.connect(self.toggle_clicked)
 
         self.paramboxes = []*NUM_PARAMS
@@ -227,9 +202,6 @@ class DashboardView(QMainWindow):
             self.toggle_button.setText("Toggle Motor ON")
         else:
             self.toggle_button.setText("Toggle Motor OFF")
-
-    def getSliderValues(self):
-        return self.slider_left.value(), self.slider_right.value()
     
     def getParamValues(self):
         paramvals = []
@@ -253,7 +225,6 @@ class DashboardController(QObject):
 
         self.view.arrow_key_pressed.connect(self.onArrowKeyPressed)
         self.view.arrow_key_released.connect(self.onArrowKeyReleased)
-        self.view.slider_changed.connect(self.onSliderChanged)
         self.view.toggle_clicked.connect(self.onToggleClicked)
         self.view.params_changed.connect(self.onSetParamClicked)
         self.model.state_changed.connect(self.updateView)
@@ -276,11 +247,6 @@ class DashboardController(QObject):
         yaw = math.atan2(l - r, 1) * 180.0 / math.pi
         self.model.speed = speed
         self.model.yaw = yaw
-
-    def onSliderChanged(self):
-        left, right = self.view.getSliderValues()
-        self.model.motor_left = left
-        self.model.motor_right = right
 
     def onToggleClicked(self):
         # manual = 0,auto = 1

@@ -271,6 +271,10 @@ void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* pre
     if(corrected_angle > 270 && corrected_angle <360) (*quad_num) = 4;
     int qn = *quad_num;
     int prev_qn = *prev_quad_num;
+    // Serial.print(prev_qn);
+    // Serial.print("\t");
+    // Serial.print(qn);
+    // Serial.print("\t");
     if(qn != prev_qn) {  
         if(qn == 1 && prev_qn == 4){
               (*num_turns) += 1.0;  // 4 --> 1 transition: CW rotation
@@ -351,12 +355,12 @@ void PID_step() {
     err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); 
 
     err_theta.prev_prop = err_theta.prop;
-
     
-    getWheelAngle(&lwheel.total_angle, &lwheel.num_turns, &lwheel.quad_num, 
-        &lwheel.prev_quad_num, lwheel.start_angle, ENCODER_L);
-    getWheelAngle(&rwheel.total_angle, &rwheel.num_turns, &rwheel.quad_num, 
-        &rwheel.prev_quad_num, rwheel.start_angle, ENCODER_R);
+
+    getWheelAngle(&(lwheel.total_angle), &(lwheel.num_turns), &(lwheel.quad_num), 
+        &(lwheel.prev_quad_num), lwheel.start_angle, ENCODER_L);
+    getWheelAngle(&(rwheel.total_angle), &(rwheel.num_turns), &(rwheel.quad_num), 
+        &(rwheel.prev_quad_num), rwheel.start_angle, ENCODER_R);
 
     lwheel.wheel_angle = lwheel.total_angle * PI/180.0;
     rwheel.wheel_angle = -rwheel.total_angle * PI/180.0;
@@ -383,8 +387,6 @@ void PID_step() {
     yaw.prev_deriv = yaw.deriv;
     yaw.prev_dd = yaw.dd;
 
-    
-
     err_x.prop = 0.0 - x.prop;
     err_x.integ += err_x.prop * pid_dt;
     err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
@@ -394,59 +396,23 @@ void PID_step() {
 
     float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
     float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
-    // float output_pid = output_t * Kc + output_x * (1-Kc);
     float output_pid = output_t + output_x;
 
-    
- 
-    
     // Serial.print(-20);
     // Serial.print(" ");
     // Serial.print(20);
     // Serial.print(" ");
-    Serial.print(theta.prop * 180.0/M_PI);
-    Serial.print(" ");
-    Serial.print(output_t);
+    // Serial.print(theta.prop * 180.0/M_PI);
+    // Serial.print(" ");
+    Serial.print(yaw.prop);
     Serial.print(" ");
     Serial.print(x.prop);
-    Serial.print(" ");
-    Serial.print(output_x);
-    Serial.print(" ");
-    Serial.print(pitch_a);
     Serial.print(" ");
     // Serial.print(g_angle);
     // Serial.print(" ");
     // Serial.print(yaw.dd*180.0/PI);
     // Serial.print(" ");
     // Serial.print(yaw.dd*180.0/PI - theta.prop);
-
-
-
-    // Serial.print(" ");
-    // Serial.print(ax);
-    // Serial.print(" ");
-    // Serial.print(x.prop);
-    // Serial.print(" ");
-    // Serial.print(x.deriv);
-    // Serial.print(" ");
-    // Serial.print(x.dd);
-    // Serial.print(" ");
-    // Serial.println(ax/4096 +- x.dd);
-    // sprintf(strbuf, "X: % 7.2f  ", x.prop);
-    // sprintf(strbuf2, "Theta: % 7.2f  ", theta.prop);
-    // strcat(strbuf, strbuf2);
-    // sprintf(strbuf2, "xPID: % 7.2f  ", output_x);
-    // strcat(strbuf, strbuf2);
-    // sprintf(strbuf2, "tPID: % 7.2f  ", output_t);
-    // strcat(strbuf, strbuf2);
-    // sprintf(strbuf2, "PID: % 7.2f  ", output_pid);
-    // strcat(strbuf, strbuf2);
-    // sprintf(strbuf2, "wheel_angle: % 7.2f  ", wheel_angle);
-    // strcat(strbuf, strbuf2);
-    // sprintf(strbuf2, "num_turns: % 7.2f  ", num_turns);
-    // strcat(strbuf, strbuf2);
-    // Serial.println(strbuf);
-    // Serial.print("\n");
     Serial.println(" ");
     driveMotors(output_pid);  
 }
@@ -470,22 +436,22 @@ void driveMotors(float pid_out) {
         }
     }
     else {
-      // deg_angle = ReadRawAngle(ENCODER_L);   
-      // start_angle = deg_angle;  
-      // prev_angle = start_angle;
-      // rotations = 0;
-      // x.prop = 0.0;
-      // x.prev_prop = 0.0; 
-      // x.deriv = 0.0;
-      // x.prev_deriv = 0.0;
-      analogWrite(Motor_L_f, 255);
-      analogWrite(Motor_R_f, 255);
-      analogWrite(Motor_L_r, 255);
-      analogWrite(Motor_R_r, 255);
+        // deg_angle = ReadRawAngle(ENCODER_L);   
+        // start_angle = deg_angle;  
+        // prev_angle = start_angle;
+        // rotations = 0;
+        // x.prop = 0.0;
+        // x.prev_prop = 0.0; 
+        // x.deriv = 0.0;
+        // x.prev_deriv = 0.0;
+        analogWrite(Motor_L_f, 255);
+        analogWrite(Motor_R_f, 255);
+        analogWrite(Motor_L_r, 255);
+        analogWrite(Motor_R_r, 255);
 
-      err_theta.integ = 0;
-      err_x.integ = 0;
-        
+        err_theta.integ = 0;
+        err_x.integ = 0;
+            
         lwheel.total_angle = 0.0;
         lwheel.num_turns = 0; 
         lwheel.prev_quad_num = 0;
@@ -499,7 +465,6 @@ void driveMotors(float pid_out) {
         rwheel.deg_angle = 0.0;
         rwheel.x = 0.0;
         rwheel.quad_num = 0;
-   
     }
 
     
