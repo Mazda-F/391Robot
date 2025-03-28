@@ -54,15 +54,15 @@ class DashboardModel:
             self._yaw = value
             self.notify_state_changed()
 
-    @property
-    def pitch(self):
-        return self._pitch
+    # @property
+    # def pitch(self):
+    #     return self._pitch
 
-    @pitch.setter
-    def pitch(self, value):
-        if self._pitch != value:
-            self._pitch = value
-            self.notify_state_changed()
+    # @pitch.setter
+    # def pitch(self, value):
+    #     if self._pitch != value:
+    #         self._pitch = value
+    #         self.notify_state_changed()
 
     @property
     def telemetry(self):
@@ -70,15 +70,16 @@ class DashboardModel:
 
     @telemetry.setter
     def telemetry(self, value):
+        telemetry_changed = False
         if len(self._telemetry) != len(value):
             self._telemetry = value.copy()
-            changed = True
+            telemetry_changed = True
         else:
             for i in range(len(value)):
                 if self._telemetry[i] != value[i]:
                     self._telemetry[i] = value[i]
-                    changed = True
-        if changed:
+                    telemetry_changed = True
+        if telemetry_changed:
             self.notify_state_changed()
 
     @property
@@ -243,6 +244,7 @@ class DashboardView(ctk.CTk):
         self.label_x_d.configure(text=f"X Desired: {model.telemetry[6]}")
         # self.label_yaw_d.configure(text=f"δ Desired: {model.telemetry[7]}")
 
+        
         if model.control_state == 0:
             self.toggle_button.configure(text="Toggle Motor ON")
         else:
@@ -349,11 +351,13 @@ class Dashboard:
             self.bluetooth_thread = threading.Thread(target=self.bluetooth.start, daemon=True)
             self.bluetooth_thread.start()
             self.view.bt_button.configure(text="Disconnect Bluetooth")
+            self.view.toggle_button.configure(state="enabled")
         else:
             self.bluetooth.stop()
             self.bluetooth_thread.join()
             self.bluetooth = None
             self.view.bt_button.configure(text="Connect Bluetooth")
+            self.view.toggle_button.configure(state="disabled")
 
     def on_close(self):
         # auto stop bt
@@ -389,17 +393,18 @@ class Dashboard:
     def control_state(self, value):
         self.model.control_state = value
 
-    @property
-    def pitch(self):
-        return self.model.pitch
+    # @property
+    # def pitch(self):
+    #     return self.model.pitch
 
-    @pitch.setter
-    def pitch(self, value):
-        self.model.pitch = value
+    # @pitch.setter
+    # def pitch(self, value):
+    #     self.model.pitch = value
 
     @property
     def telemetry(self):
         return self.model.telemetry
+    
     @telemetry.setter
     def telemetry(self, value):
         self.model.telemetry = value

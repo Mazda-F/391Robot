@@ -28,17 +28,21 @@ class Bluetooth:
         print(f"[INFO] Bluetooth: Successfully connected to {device}")
         async with BleakClient(device) as client:
             while self._running:
-                din_str = await client.read_gatt_char(self.uuid["din"])
-                din_substrs = din_str.split(", ")
-                din_data = []
-                for substr in din_substrs:
-                    din_data.append(substr.decode())
-                    
-                try:
-                    self.dashboard.telemetry = din_data[:NUM_DIN]
-                except Exception as e:
-                    print("[ERROR] Bluetooth: Error writing values to dashboard", e)
-                    continue
+                # try:
+                #     din_str = await client.read_gatt_char(self.uuid["din"])
+                #     din_substrs = din_str.decode().split(", ")
+                #     din_data = []
+                #     for substr in din_substrs:
+                #         din_data.append(float(substr))
+                # except Exception:
+                #     din_data = [0.0]*NUM_DIN
+                
+                # if len(din_data) == NUM_DIN:
+                #     try:
+                #         self.dashboard.telemetry = din_data[:NUM_DIN]
+                #     except Exception as e:
+                #         print("[ERROR] Bluetooth: Error writing values to dashboard", e)
+                #         continue
 
                 try:
                     yaw = self.dashboard.yaw
@@ -48,16 +52,18 @@ class Bluetooth:
                 except Exception as e:
                     print("[ERROR] Bluetooth: Error reading dashboard values:", e)
                     continue
-                
+
                 dout_bytes = struct.pack('<' + 'f' * NUM_PARAMS, *params)
                 movement = [yaw, speed]
                 movement_bytes = struct.pack('<' + 'f' * 2, *movement)
 
-                await self.sendCommand(client, control_mode, self.uuid["control"])
+                ctrl_bytes = struct.pack('<' + 'i', control_mode)
+
+                await self.sendRawBytes(client, ctrl_bytes, self.uuid["control"])
                 await self.sendRawBytes(client, movement_bytes, self.uuid["movement"])
                 await self.sendRawBytes(client, dout_bytes, self.uuid["dout"])
                 
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.001)
 
     async def sendRawBytes(self, client, bytes, uuid):
         await client.write_gatt_char(uuid, bytes, response=True)
