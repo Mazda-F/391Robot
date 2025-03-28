@@ -1,20 +1,22 @@
+#!/usr/bin/env python3
 import cv2
 import numpy as np
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout
+import urllib.request
+import threading
+from PIL import Image, ImageTk
+import customtkinter as ctk
+import tkinter as tk
 
-class MjpegStreamThread(QThread):
-    frame_received = pyqtSignal(QImage)
-    connection_error = pyqtSignal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.stream_url = 'http://192.168.4.1:129/stream'
+class StreamThread(threading.Thread):
+    def __init__(self, frame_callback, error_callback, stream_url="http://192.168.4.1:129/stream"):
+        super().__init__()
+        self.frame_callback = frame_callback
+        self.error_callback = error_callback
+        self.stream_url = stream_url
         self._running = True
+        self.daemon = True
 
     def run(self):
-        import urllib.request
         try:
             with urllib.request.urlopen(self.stream_url) as stream:
                 data = b""
@@ -24,10 +26,10 @@ class MjpegStreamThread(QThread):
                         break
                     data += chunk
                     a = data.find(b'\xff\xd8')  # JPEG start
-                    b = data.find(b'\xff\xd9')  # JPEG end
-                    if (a != -1 and b != -1 and b > a) or len(data) > 8000:
-                        jpg = data[a:b+2]
-                        data = data[b+2:]
+                    b_idx = data.find(b'\xff\xd9')  # JPEG end
+                    if (a != -1 and b_idx != -1 and b_idx > a) or len(data) > 8000:
+                        jpg = data[a:b_idx+2]
+                        data = data[b_idx+2:]
                         img_array = np.frombuffer(jpg, dtype=np.uint8)
                         if img_array.size == 0:
                             continue
@@ -35,65 +37,63 @@ class MjpegStreamThread(QThread):
                         if img is None:
                             continue
                         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                        height, width, channels = img.shape
-                        bytesPerLine = channels * width
-                        qimage = QImage(img.data, width, height, bytesPerLine, QImage.Format_RGB888)
-                        self.frame_received.emit(qimage)
+                        pil_image = Image.fromarray(img)
+                        self.frame_callback(pil_image)
         except Exception as e:
-            error_msg = f"Connection Error"
-            self.connection_error.emit(error_msg)
+            self.error_callback("Connection Error")
 
     def stop(self):
         self._running = False
 
-class MjpegStreamWidget(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMinimumHeight(400)
-        self.layout = QVBoxLayout(self)
-        self.image_label = QLabel(self)
-        self.image_label.setAlignment(Qt.AlignCenter)
-        self.layout.addWidget(self.image_label)
+class StreamWidget(ctk.CTkFrame):
+    def __init__(self, parent, width=780, height=400):
+        super().__init__(parent, width=width, height=height)
+        self.width = width
+        self.height = height
+        self.grid_propagate(False)
 
-        self.retry_button = QPushButton("Retry", self)
-        self.retry_button.clicked.connect(self.retry_connection)
-        self.retry_button.hide()  # hide by default
-        self.layout.addWidget(self.retry_button)
+        self.image_label = ctk.CTkLabel(self, text="Loading stream...")
+        self.image_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
+        self.retry_button = ctk.CTkButton(self, text="Retry", command=self.retry_connection)
+        self.retry_button.place(relx=0.5, rely=0.9, anchor=tk.CENTER)
+        self.retry_button.configure(state="disabled")
+
+        self.thread = None
+        self.current_photo = None  # keep reference
         self.start_stream_thread()
 
     def start_stream_thread(self):
-        self.thread = MjpegStreamThread()
-        self.thread.frame_received.connect(self.update_image)
-        self.thread.connection_error.connect(self.handle_connection_error)
+        self.thread = StreamThread(self.frame_received, self.handle_connection_error)
         self.thread.start()
 
-    @pyqtSlot(QImage)
-    def update_image(self, qimage):
-        
-        self.image_label.setText("")
-        self.retry_button.hide()
-        pixmap = QPixmap.fromImage(qimage)
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(),
-                                                  Qt.KeepAspectRatio,
-                                                  Qt.SmoothTransformation))
+    def frame_received(self, pil_image):
+        self.after(0, self.update_image, pil_image)
 
-    @pyqtSlot(str)
+    def update_image(self, pil_image):
+        self.retry_button.configure(state="disabled")
+        self.image_label.configure(text="")
+        pil_image = pil_image.resize((self.width, self.height), Image.ANTIALIAS)
+        self.current_photo = ImageTk.PhotoImage(pil_image)
+        self.image_label.configure(image=self.current_photo)
+
     def handle_connection_error(self, error_msg):
-        self.image_label.setText(error_msg)
-        self.retry_button.show()
+        self.after(0, self.show_error, error_msg)
+
+    def show_error(self, error_msg):
+        self.image_label.configure(text=error_msg, image=None)
+        self.retry_button.configure(state="normal")
 
     def retry_connection(self):
-        # stop current thread and start new one
-        if self.thread.isRunning():
+        if self.thread and self.thread.is_alive():
             self.thread.stop()
-            self.thread.wait()
-        self.retry_button.hide()
-        self.image_label.setText("Retrying...")
+            self.thread.join()
+        self.retry_button.configure(state="disabled")
+        self.image_label.configure(text="Retrying...", image=None)
         self.start_stream_thread()
 
-    def closeEvent(self, event):
-        if self.thread.isRunning():
+    def destroy(self):
+        if self.thread and self.thread.is_alive():
             self.thread.stop()
-            self.thread.wait()
-        event.accept()
+            self.thread.join()
+        super().destroy()

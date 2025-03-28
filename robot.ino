@@ -80,6 +80,11 @@ struct K { float Kp = 0.0; float Ki = 0.0; float Kd = 0.0; };
 struct timevar { float integ = 0.0; float prop = 0.0; float deriv = 0.0; float dd = 0.0;  
     float prev_prop = 0.0; float prev_deriv = 0.0; float prev_dd = 0.0; float temp1 = 0.0; float temp2 = 0.0; float temp3 = 0.0;
 };
+float yaw_desired = 0.0;
+float x_desired = 0.0;
+float speed_desired = 0.0;
+unsigned long x_time = 0;
+unsigned long x_time_prev = 0;
 
 K Kt;
 K Kx;
@@ -89,9 +94,11 @@ timevar x;
 timevar yaw;
 timevar err_theta;
 timevar err_x;
+timevar err_yaw;
 timevar pwm;
 wheeldata lwheel;
 wheeldata rwheel;
+#define PWM_DEADZONE 5
 
 // FIR 
 #define FILTER_ORDER 10  
@@ -120,25 +127,17 @@ enum mode {
 
 // Bluetooth
 #define DIN_COUNT 9
+#define DOUT_COUNT 9
 #define DIN_BUFSIZE 4*DIN_COUNT
 int control_mode = 0; // default manual
 float bt_din_buff[16];
+float bt_movement_buff[16];
+float bt_dout_buff[16];
 BLEService nanoService("13012F00-F8C3-4F4A-A8F4-15CD926DA146");
-BLEStringCharacteristic pitch_char("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic speed_char("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16); 
-BLEStringCharacteristic yaw_char("13012F03-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLEStringCharacteristic dout_com("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 64);
+BLEStringCharacteristic movement_com("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 32); 
 BLEStringCharacteristic control_com("13012F06-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-
-BLEStringCharacteristic din_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, DIN_BUFSIZE);
-
-// BLEStringCharacteristic K1_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-// BLEStringCharacteristic K2_com("13012F08-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-// BLEStringCharacteristic K3_com("13012F09-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-// BLEStringCharacteristic K4_com("13012F10-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-// BLEStringCharacteristic K5_com("13012F11-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-// BLEStringCharacteristic K6_com("13012F12-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-// BLEStringCharacteristic K7_com("13012F13-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-
+BLEStringCharacteristic din_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 64);
 
 uint8_t readRegister8(uint8_t reg) {
     WIRE.beginTransmission(INC_ADDRESS);
@@ -278,10 +277,6 @@ void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* pre
     if(corrected_angle > 270 && corrected_angle <360) (*quad_num) = 4;
     int qn = *quad_num;
     int prev_qn = *prev_quad_num;
-    // Serial.print(prev_qn);
-    // Serial.print("\t");
-    // Serial.print(qn);
-    // Serial.print("\t");
     if(qn != prev_qn) {  
         if(qn == 1 && prev_qn == 4){
               (*num_turns) += 1.0;  // 4 --> 1 transition: CW rotation
@@ -352,6 +347,7 @@ void PID_step() {
     pid_dt = (pid_curr_time - pid_prev_time) / 1000.0;
     pid_prev_time = pid_curr_time;
 
+    /*** THETA ***/
     // theta.prop = getAngle() * 180/M_PI;
     theta.prop = getAngle();
     theta.prev_prop = theta.prop;
@@ -360,15 +356,13 @@ void PID_step() {
     err_theta.integ += err_theta.prop * pid_dt;
     err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / pid_dt;
     err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); 
-
     err_theta.prev_prop = err_theta.prop;
     
-
+    /*** X ***/
     getWheelAngle(&(lwheel.total_angle), &(lwheel.num_turns), &(lwheel.quad_num), 
         &(lwheel.prev_quad_num), lwheel.start_angle, ENCODER_L);
     getWheelAngle(&(rwheel.total_angle), &(rwheel.num_turns), &(rwheel.quad_num), 
         &(rwheel.prev_quad_num), rwheel.start_angle, ENCODER_R);
-
     lwheel.wheel_angle = lwheel.total_angle * PI/180.0;
     rwheel.wheel_angle = -rwheel.total_angle * PI/180.0;
     lwheel.wheel_angle = FIR(lwheel.wheel_angle, l_encoder_vec, fir_coeffs, N_FIR);
@@ -385,6 +379,19 @@ void PID_step() {
     x.prev_deriv = x.deriv;
     x.prev_dd = x.dd;
     
+    x_time = millis();
+    if (x_time - x_time_prev >= 250) {
+        x_desired += speed_desired/4.0;  
+        x_time_prev = x_time;
+    }
+
+    err_x.prop = x_desired - x.prop;
+    err_x.integ += err_x.prop * pid_dt;
+    err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
+    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
+    err_x.prev_prop = err_x.prop;
+
+    /*** YAW ***/
     yaw.prop = ((lwheel.x -  rwheel.x) / WHEEL_DISTANCE);
     yaw.deriv = (yaw.prop - yaw.prev_prop) / pid_dt;
     yaw.deriv = IIR(yaw.deriv, &yaw.temp1, 0.98);
@@ -394,94 +401,144 @@ void PID_step() {
     yaw.prev_deriv = yaw.deriv;
     yaw.prev_dd = yaw.dd;
 
-    err_x.prop = 0.0 - x.prop;
-    err_x.integ += err_x.prop * pid_dt;
-    err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
-    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
-    
-    err_x.prev_prop = err_x.prop;
+    err_yaw.prop = yaw_desired - yaw.prop;
+    err_yaw.integ += err_yaw.prop * pid_dt;
+    err_yaw.deriv = (err_yaw.prop - err_yaw.prev_prop) / pid_dt;
+    err_yaw.deriv = IIR(err_yaw.deriv, &err_yaw.prev_deriv, 0.3077);
+    err_yaw.prev_prop = err_yaw.prop;
 
     float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
     float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
-    float output_pid = output_t + output_x;
+    float output_y = Ky.Kp * err_yaw.prop + Ky.Ki * err_yaw.integ + Ky.Kd * err_yaw.deriv;
+    // float output_pid = output_t + output_x;
+
+    float left_motor_pwm = output_t + output_x + output_y;
+    float right_motor_pwm = output_t + output_x - output_y;
+
+    bt_dout_buff[0] = theta.prop;
+    bt_dout_buff[1] = x.prop;
+    bt_dout_buff[2] = yaw.prop;
+    bt_dout_buff[3] = err_theta.prop;
+    bt_dout_buff[4] = err_x.prop;
+    bt_dout_buff[5] = err_yaw.prop;
+    bt_dout_buff[6] = x_desired;
+    bt_dout_buff[7] = yaw_desired;
 
     // Serial.print(-20);
     // Serial.print(" ");
     // Serial.print(20);
-    // Serial.print(" ");
-    // Serial.print(theta.prop * 180.0/M_PI);
-    // Serial.print(" ");
-    // Serial.print(yaw.prop);
-    // Serial.print(" ");
+    // // Serial.print(" ");
+    // Serial.print(theta.prop);
+    // Serial.print("\t");
     // Serial.print(x.prop);
-    // Serial.print(" ");
-    // Serial.print(g_angle);
-    // Serial.print(" ");
-    // Serial.print(yaw.dd*180.0/PI);
-    // Serial.print(" ");
-    // Serial.print(yaw.dd*180.0/PI - theta.prop);
+    // Serial.print("\t");
+    // Serial.print(yaw.prop);
+
+    // Serial.print("\t | \t");
+
+    // Serial.print(x_desired);
+    // Serial.print("\t");
+    // Serial.print(yaw_desired);
+
+    // Serial.print("\t | \t");
+
+    // Serial.print(err_x.prop);
+    // Serial.print("\t");
+    // Serial.print(err_yaw.prop);
+
     // Serial.println(" ");
-    driveMotors(output_pid);  
+
+    driveMotors(left_motor_pwm, right_motor_pwm);  
 }
 
-void driveMotors(float pid_out) {
-    int motorSpeed = (int) abs(pid_out);
-    motorSpeed = constrain(motorSpeed, 0, 255);
-    motorSpeed = map(motorSpeed, 0, 255, 7, 255);
+
+void driveMotors(float left_motor_pwm, float right_motor_pwm) {
+    left_motor_pwm = constrain(left_motor_pwm, -255, 255);
+    right_motor_pwm = constrain(right_motor_pwm, -255, 255);
+    int leftSpeed = map(abs(left_motor_pwm), 0, 255, PWM_DEADZONE, 255);
+    int rightSpeed = map(abs(right_motor_pwm), 0, 255, PWM_DEADZONE, 255);
 
     if (control_mode) {
-        if (pid_out > 0) {
-            analogWrite(Motor_L_r, 255-motorSpeed);
-            analogWrite(Motor_R_r, 255-motorSpeed);
+        // Left motor
+        if (left_motor_pwm > 0) {  // Forward
             analogWrite(Motor_L_f, 255);
-            analogWrite(Motor_R_f, 255);
-        } else {
-            analogWrite(Motor_L_f, 255-motorSpeed);
-            analogWrite(Motor_R_f, 255-motorSpeed);
+            analogWrite(Motor_L_r, 255-leftSpeed);
+        } else {                   // Backward
+            analogWrite(Motor_L_f, 255-leftSpeed);
             analogWrite(Motor_L_r, 255);
+        }
+        // Right motor
+        if (right_motor_pwm > 0) {  // Forward
+            analogWrite(Motor_R_f, 255);
+            analogWrite(Motor_R_r, 255-rightSpeed);
+        } else {                    // Backward
+            analogWrite(Motor_R_f, 255-rightSpeed);
             analogWrite(Motor_R_r, 255);
         }
-    }
-    else {
+    } else {
         analogWrite(Motor_L_f, 255);
         analogWrite(Motor_R_f, 255);
         analogWrite(Motor_L_r, 255);
         analogWrite(Motor_R_r, 255);
 
+        // Reset integrator and position values
         err_theta.integ = 0;
         err_x.integ = 0;
-            
+        err_yaw.integ = 0;
+
         lwheel.total_angle = 0.0;
         lwheel.num_turns = 0; 
         lwheel.prev_quad_num = 0;
         lwheel.deg_angle = 0.0;
         lwheel.x = 0.0;
-        lwheel.quad_num = 0;
 
         rwheel.total_angle = 0.0;
         rwheel.num_turns = 0; 
         rwheel.prev_quad_num = 0;
         rwheel.deg_angle = 0.0;
         rwheel.x = 0.0;
-        rwheel.quad_num = 0;
     }
-
-    
 }
 
 void bluetooth() {
+    float value;
+
+    // read
+    uint8_t dinbuff[36];
+    uint8_t movbuff[8];
+    // uint8_t doutbuff[DOUT_COUNT * 4];
+
     String control_mode_str = control_com.value();
-    String din_str = din_com.value();
+    din_com.readValue(dinbuff, 36);
+    movement_com.readValue(movbuff, 8); 
+
     control_mode = control_mode_str.toInt();
     
-    // Serial.print(din_str);
     for (int i = 0; i < DIN_COUNT; i++) {
-        bt_din_buff[i] = din_str.substring(12 + 4*i, 12 + 4*i+4).toFloat();
-        Serial.print(bt_din_buff[i]); 
-        Serial.print("\t"); 
+        memcpy(&value, dinbuff + i * sizeof(float), sizeof(float));
+        if (isnan(value)) {
+            bt_din_buff[i] = 0.0;
+        } else {
+            bt_din_buff[i] = value;
+        }
     }
 
-    Serial.println(" ");
+    for (int i = 0; i < 2; i++) {
+        memcpy(&value, movbuff + i * sizeof(float), sizeof(float));
+        if (isnan(value)) {
+            bt_movement_buff[i] = 0.0;
+        } else {
+            bt_movement_buff[i] = value;
+        }
+    }
+
+    // write
+    String dout_str;
+    for (int i = 0; i < DOUT_COUNT; i++) {
+        dout_str += String(bt_dout_buff[i], (unsigned char)5) + String(", ");
+    }
+    
+    dout_com.writeValue(dout_str);
 
     Kt.Kp = bt_din_buff[0];
     Kt.Ki = bt_din_buff[1];
@@ -492,8 +549,10 @@ void bluetooth() {
     Ky.Kp = bt_din_buff[6];
     Ky.Ki = bt_din_buff[7];
     Ky.Kd = bt_din_buff[8];
-
+    yaw_desired = bt_movement_buff[0];
+    speed_desired = bt_movement_buff[1];
 }
+
 
 void setup() {
     Serial.begin(SERIAL_BAUDRATE);
@@ -518,9 +577,8 @@ void setup() {
     pinMode(Motor_R_r, OUTPUT);  
     BLE.setLocalName("ROBOT_C4");
     BLE.setAdvertisedService(nanoService);
-    nanoService.addCharacteristic(pitch_char);
-    nanoService.addCharacteristic(speed_char);
-    nanoService.addCharacteristic(yaw_char);
+    nanoService.addCharacteristic(dout_com);
+    nanoService.addCharacteristic(movement_com);
     nanoService.addCharacteristic(control_com);
     nanoService.addCharacteristic(din_com);
     BLE.addService(nanoService);
@@ -531,7 +589,9 @@ void setup() {
 
     angle_curr_time = millis();
     angle_prev_time = angle_curr_time; 
-
+    
+    x_time = millis();
+    x_time_prev = x_time;
 
     initFIR(fir_coeffs, BETA_FIR, N_FIR);
     for (int i = 0; i < N_FIR; i++) ax_vec[i] = 0.0;
@@ -540,10 +600,6 @@ void setup() {
     for (int i = 0; i < N_FIR; i++) gz_vec[i] = 0.0;
     for (int i = 0; i < N_FIR; i++) l_encoder_vec[i] = 0.0;
     for (int i = 0; i < N_FIR; i++) r_encoder_vec[i] = 0.0;
-    
-    
-
-
 }
 
 void loop() {

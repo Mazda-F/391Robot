@@ -1,0 +1,2 @@
+NUM_PARAMS = 9
+NUM_DIN = 7

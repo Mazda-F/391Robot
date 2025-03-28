@@ -1,336 +1,374 @@
 #!/usr/bin/env python3
-import math
-import sys
-import threading
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QObject
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QLineEdit,
-    QPushButton, QGridLayout, QTabWidget, QVBoxLayout
-)
-from stream import MjpegStreamThread, MjpegStreamWidget
-NUM_PARAMS = 9
+import customtkinter as ctk
+import threading, math, os
+from stream import StreamWidget
+from config import *
 
-class DashboardModel(QObject):
-    state_changed = pyqtSignal()
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
+class DashboardModel:
     def __init__(self):
-        super().__init__()
         self._control_state = 0
         self._speed = 0
         self._yaw = 0
         self._pitch = 0
-        self._motor_left = 0
-        self._motor_right = 0
-        self._params = [0.0]*NUM_PARAMS
+        self._telemetry = [0.0] * NUM_DIN
+        self._params = [0.0] * NUM_PARAMS
+        self._observers = []
 
-    def getControlState(self):
+    def add_observer(self, callback):
+        self._observers.append(callback)
+
+    def notify_state_changed(self):
+        for callback in self._observers:
+            callback()
+
+    @property
+    def control_state(self):
         return self._control_state
-    def setControlState(self, value):
+
+    @control_state.setter
+    def control_state(self, value):
         if self._control_state != value:
             self._control_state = value
-            self.state_changed.emit()
-    control_state = property(getControlState, setControlState)
+            self.notify_state_changed()
 
-    def getSpeed(self):
+    @property
+    def speed(self):
         return self._speed
-    def setSpeed(self, value):
+
+    @speed.setter
+    def speed(self, value):
         if self._speed != value:
             self._speed = value
-            self.state_changed.emit()
-    speed = property(getSpeed, setSpeed)
+            self.notify_state_changed()
 
-    def getYaw(self):
+    @property
+    def yaw(self):
         return self._yaw
-    def setYaw(self, value):
+
+    @yaw.setter
+    def yaw(self, value):
         if self._yaw != value:
             self._yaw = value
-            self.state_changed.emit()
-    yaw = property(getYaw, setYaw)
+            self.notify_state_changed()
 
-    def getMotorLeft(self):
-        return self._motor_left
-    def setMotorLeft(self, value):
-        if self._motor_left != value:
-            self._motor_left = value
-            self.state_changed.emit()
-    motor_left = property(getMotorLeft, setMotorLeft)
-
-    def getMotorRight(self):
-        return self._motor_right
-    def setMotorRight(self, value):
-        if self._motor_right != value:
-            self._motor_right = value
-            self.state_changed.emit()
-    motor_right = property(getMotorRight, setMotorRight)
-
-    def getPitch(self):
+    @property
+    def pitch(self):
         return self._pitch
-    def setPitch(self, value):
+
+    @pitch.setter
+    def pitch(self, value):
         if self._pitch != value:
             self._pitch = value
-            self.state_changed.emit()
-    pitch = property(getPitch, setPitch)
+            self.notify_state_changed()
 
-    def getParams(self):
+    @property
+    def telemetry(self):
+        return self._telemetry
+
+    @telemetry.setter
+    def telemetry(self, value):
+        if len(self._telemetry) != len(value):
+            self._telemetry = value.copy()
+            changed = True
+        else:
+            for i in range(len(value)):
+                if self._telemetry[i] != value[i]:
+                    self._telemetry[i] = value[i]
+                    changed = True
+        if changed:
+            self.notify_state_changed()
+
+    @property
+    def params(self):
         return self._params
-    def setParams(self, value):
-        emit_flag = False
+
+    @params.setter
+    def params(self, value):
+        changed = False
         if len(self._params) != len(value):
             self._params = value.copy()
-            emit_flag = True
+            changed = True
         else:
-            if value and self._params:
-                for i in range(len(value)):
-                    if self._params[i] != value[i]:
-                        self._params[i] = value[i]
-                        emit_flag = True
-        if emit_flag:
-            self.state_changed.emit()
-    params = property(getParams, setParams)
+            for i in range(len(value)):
+                if self._params[i] != value[i]:
+                    self._params[i] = value[i]
+                    changed = True
+        if changed:
+            self.notify_state_changed()
 
 
-class DashboardView(QMainWindow):
-    arrow_key_pressed = pyqtSignal(str)
-    arrow_key_released = pyqtSignal(str)
-    toggle_clicked = pyqtSignal()
-    params_changed = pyqtSignal()
-    bluetooth_toggle_clicked = pyqtSignal()  # new signal for bt toggling
-
+class DashboardView(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Robot Dashboard")
-        self.setGeometry(100, 100, 800, 1200)
+        self.title("C4 Dashboard")
+        self.geometry("1180x720")
         self.pressed_keys = set()
 
-        # tab1
-        self.tabs = QTabWidget(self)
-        self.setCentralWidget(self.tabs)
+        self.tabview = ctk.CTkTabview(self, width=1080, height=720)
+        self.tabview.pack(fill="both", expand=True)
+        self.tabview.add("Dashboard")
+        self.tabview.add("Settings")
 
-        self.tab_dashboard = QWidget()
-        self.tabs.addTab(self.tab_dashboard, "Dashboard")
-        dashboard_layout = QVBoxLayout()
-        self.tab_dashboard.setLayout(dashboard_layout)
+        self.dashboard_tab = self.tabview.tab("Dashboard")
+        self.dashboard_frame = ctk.CTkFrame(self.dashboard_tab)
+        self.dashboard_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.stream_widget = MjpegStreamWidget(self)
-        self.stream_widget.setMinimumHeight(400)
-        dashboard_layout.addWidget(self.stream_widget)
+        self.stream_widget = StreamWidget(self.dashboard_frame, width=780, height=400)
+        self.stream_widget.grid(row=0, column=1, padx=(10, 10), pady=(10, 10))
 
-        telemetrics_widget = QWidget(self)
-        grid = QGridLayout()
-        telemetrics_widget.setLayout(grid)
+        self.controls_frame = ctk.CTkFrame(self.dashboard_frame)
+        self.controls_frame.grid(row=1, column=1, pady=(10, 10))
 
-        self.label_up = QLabel("W", self)
-        self.label_down = QLabel("S", self)
-        self.label_left = QLabel("A", self)
-        self.label_right = QLabel("D", self)
-        for lb in (self.label_up, self.label_down, self.label_left, self.label_right):
-            lb.setAlignment(Qt.AlignCenter)
-            lb.setFixedSize(80,80)
-        grid.addWidget(self.label_up, 0, 1)
-        grid.addWidget(self.label_down, 1, 1)
-        grid.addWidget(self.label_left, 1, 0)
-        grid.addWidget(self.label_right, 1, 2)
+        self.buttons_frame = ctk.CTkFrame(self.dashboard_frame, width=300)
+        self.buttons_frame.grid(row=0, column=0, rowspan=2, pady=(10, 10))
 
-        self.label_speed = QLabel("Speed: 0", self)
-        self.label_yaw = QLabel("Yaw Angle: 0", self)
-        self.label_pitch = QLabel("Received Pitch (deg): 0", self)
-        for lb in (self.label_speed, self.label_yaw, self.label_pitch):
-            lb.setAlignment(Qt.AlignCenter)
-        grid.addWidget(self.label_speed, 2, 0, 1, 3)
-        grid.addWidget(self.label_yaw, 3, 0, 1, 3)
-        grid.addWidget(self.label_pitch, 4, 0, 1, 3)
+        self.telemetrics_frame = ctk.CTkFrame(self.dashboard_frame, width=300)
+        self.telemetrics_frame.grid(row=0, column=2, rowspan=2 ,pady=(10, 10))
 
-        self.toggle_button = QPushButton("Toggle Motor ON", self)
-        grid.addWidget(self.toggle_button, 5, 1)
-        self.toggle_button.clicked.connect(self.toggle_clicked)
+        # Controls Panel
+        self.label_up = ctk.CTkLabel(self.controls_frame, text="W", width=80, height=80, anchor="center")
+        self.label_down = ctk.CTkLabel(self.controls_frame, text="S", width=80, height=80, anchor="center")
+        self.label_left = ctk.CTkLabel(self.controls_frame, text="A", width=80, height=80, anchor="center")
+        self.label_right = ctk.CTkLabel(self.controls_frame, text="D", width=80, height=80, anchor="center")
+        self.label_up.grid(row=0, column=1, padx=5, pady=5)
+        self.label_left.grid(row=1, column=0, padx=5, pady=5)
+        self.label_down.grid(row=1, column=1, padx=5, pady=5)
+        self.label_right.grid(row=1, column=2, padx=5, pady=5)
+        
+        self.label_speed = ctk.CTkLabel(self.controls_frame, text="Sent Speed: 0 m/s")
+        self.label_yaw = ctk.CTkLabel(self.controls_frame, text="Sent Yaw Angle: 0 deg")
+        self.label_speed.grid(row=1, column=4, columnspan=4, padx=35, pady=5)
+        self.label_yaw.grid(row=2, column=4, columnspan=4, padx=35, pady=5)
 
-        # bt connect 
-        self.bt_button = QPushButton("Connect Bluetooth", self)
-        grid.addWidget(self.bt_button, 6, 1)
-        self.bt_button.clicked.connect(self.bluetooth_toggle_clicked)
+        # Telemetrics Panel
+        self.label_pitch = ctk.CTkLabel(self.telemetrics_frame, text="θ: 0")
+        self.label_x = ctk.CTkLabel(self.telemetrics_frame, text="X: 0")
+        self.label_yaw = ctk.CTkLabel(self.telemetrics_frame, text="δ: 0")
+        self.label_e_pitch = ctk.CTkLabel(self.telemetrics_frame, text="θ Error: 0")
+        self.label_e_x = ctk.CTkLabel(self.telemetrics_frame, text="X Error: 0")
+        self.label_e_yaw = ctk.CTkLabel(self.telemetrics_frame, text="δ Error: 0")
+        self.label_x_d = ctk.CTkLabel(self.telemetrics_frame, text="X Desired: 0")
+        self.label_yaw_d = ctk.CTkLabel(self.telemetrics_frame, text="δ Desired: 0")
+        self.label_pitch.grid(row=1, column=1, columnspan=3, padx=35, pady=5)
+        self.label_x.grid(row=2, column=1, columnspan=3, padx=35, pady=5)
+        self.label_yaw.grid(row=3, column=1, columnspan=3, padx=35, pady=5)
+        self.label_e_pitch.grid(row=4, column=1, columnspan=3, padx=35, pady=5)
+        self.label_e_x.grid(row=5, column=1, columnspan=3, padx=35, pady=5)
+        self.label_e_yaw.grid(row=6, column=1, columnspan=3, padx=35, pady=5)
+        self.label_x_d.grid(row=7, column=1, columnspan=3, padx=35, pady=5)
+        self.label_yaw_d.grid(row=8, column=1, columnspan=3, padx=35, pady=5)
 
-        dashboard_layout.addWidget(telemetrics_widget)
+        # Buttons Panel
+        self.toggle_button = ctk.CTkButton(self.buttons_frame, text="Toggle Motor ON", command=self._toggle_button_clicked)
+        self.toggle_button.grid(row=5, column=1, padx=5, pady=5)
 
-        # tab 2
-        self.tab_settings = QWidget()
-        self.tabs.addTab(self.tab_settings, "Settings")
-        settings_layout = QGridLayout()
-        self.tab_settings.setLayout(settings_layout)
-        self.paramboxes = []
+        self.bt_button = ctk.CTkButton(self.buttons_frame, text="Connect Bluetooth", command=self._bt_button_clicked)
+        self.bt_button.grid(row=6, column=1, padx=5, pady=5)
+
+        # SETTINGS TAB
+        self.settings_tab = self.tabview.tab("Settings")
+        self.settings_frame = ctk.CTkFrame(self.settings_tab)
+        self.settings_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.param_entries = []
         for i in range(NUM_PARAMS):
-            tbox = QLineEdit(self)
-            self.paramboxes.append(tbox)
-            settings_layout.addWidget(tbox, i, 0)
-        self.param_button = QPushButton("Set Parameters", self)
-        settings_layout.addWidget(self.param_button, NUM_PARAMS, 0)
-        self.param_button.clicked.connect(self.params_changed)
+            entry = ctk.CTkEntry(self.settings_frame, width=200)
+            entry.grid(row=i, column=0, padx=5, pady=5)
+            self.param_entries.append(entry)
+        self.param_button = ctk.CTkButton(self.settings_frame, text="Set Parameters", command=self._param_button_clicked)
+        self.param_button.grid(row=NUM_PARAMS, column=0, pady=10)
 
-        self.tabs.setFocusPolicy(Qt.StrongFocus)
-        self.tabs.setFocus()
+       
+        self.on_arrow_key_pressed = None
+        self.on_arrow_key_released = None
+        self.on_toggle_clicked = None
+        self.on_params_changed = None
+        self.on_bluetooth_toggle_clicked = None
 
-    def updateArrowDisplay(self):
-        styles = {
-            True: "background-color: black; color: white; font-size: 25px;",
-            False: "background-color: grey; color: white; font-size: 25px;"
-        }
-        self.label_up.setStyleSheet(styles["w" in self.pressed_keys])
-        self.label_down.setStyleSheet(styles["s" in self.pressed_keys])
-        self.label_left.setStyleSheet(styles["a" in self.pressed_keys])
-        self.label_right.setStyleSheet(styles["d" in self.pressed_keys])
+        # Bind key 
+        self.bind("<KeyPress>", self.key_press_event)
+        self.bind("<KeyRelease>", self.key_release_event)
+        self.focus_set()
 
-    def keyPressEvent(self, event):
-        key = event.key()
-        if key == Qt.Key_W and "w" not in self.pressed_keys:
-            self.pressed_keys.add("w")
-            self.arrow_key_pressed.emit("w")
-        elif key == Qt.Key_S and "s" not in self.pressed_keys:
-            self.pressed_keys.add("s")
-            self.arrow_key_pressed.emit("s")
-        elif key == Qt.Key_A and "a" not in self.pressed_keys:
-            self.pressed_keys.add("a")
-            self.arrow_key_pressed.emit("a")
-        elif key == Qt.Key_D and "d" not in self.pressed_keys:
-            self.pressed_keys.add("d")
-            self.arrow_key_pressed.emit("d")
-        self.updateArrowDisplay()
-        super().keyPressEvent(event)
+    def _toggle_button_clicked(self):
+        if self.on_toggle_clicked:
+            self.on_toggle_clicked()
 
-    def keyReleaseEvent(self, event):
-        key = event.key()
-        if key == Qt.Key_W and "w" in self.pressed_keys:
-            self.pressed_keys.remove("w")
-            self.arrow_key_released.emit("w")
-        elif key == Qt.Key_S and "s" in self.pressed_keys:
-            self.pressed_keys.remove("s")
-            self.arrow_key_released.emit("s")
-        elif key == Qt.Key_A and "a" in self.pressed_keys:
-            self.pressed_keys.remove("a")
-            self.arrow_key_released.emit("a")
-        elif key == Qt.Key_D and "d" in self.pressed_keys:
-            self.pressed_keys.remove("d")
-            self.arrow_key_released.emit("d")
-        self.updateArrowDisplay()
-        super().keyReleaseEvent(event)
+    def _param_button_clicked(self):
+        if self.on_params_changed:
+            self.on_params_changed()
 
-    def updateDisplay(self, model: DashboardModel):
-        self.label_speed.setText(f"Speed: {model.speed}")
-        self.label_yaw.setText(f"Yaw Angle: {model.yaw:.1f}")
-        self.label_pitch.setText(f"Received Pitch: {model.pitch} deg")
+    def _bt_button_clicked(self):
+        if self.on_bluetooth_toggle_clicked:
+            self.on_bluetooth_toggle_clicked()
+
+    def key_press_event(self, event):
+        key = event.keysym.lower()
+        if key in ["w", "a", "s", "d"]:
+            if key not in self.pressed_keys:
+                self.pressed_keys.add(key)
+                if self.on_arrow_key_pressed:
+                    self.on_arrow_key_pressed(key)
+            self.update_arrow_display()
+
+    def key_release_event(self, event):
+        key = event.keysym.lower()
+        if key in ["w", "a", "s", "d"]:
+            if key in self.pressed_keys:
+                self.pressed_keys.remove(key)
+                if self.on_arrow_key_released:
+                    self.on_arrow_key_released(key)
+            self.update_arrow_display()
+
+    def update_arrow_display(self):
+        pressed_style = {"fg_color": "black", "text_color": "white", "font": ("Arial", 25)}
+        unpressed_style = {"fg_color": "grey", "text_color": "white", "font": ("Arial", 25)}
+        self.label_up.configure(**(pressed_style if "w" in self.pressed_keys else unpressed_style))
+        self.label_down.configure(**(pressed_style if "s" in self.pressed_keys else unpressed_style))
+        self.label_left.configure(**(pressed_style if "a" in self.pressed_keys else unpressed_style))
+        self.label_right.configure(**(pressed_style if "d" in self.pressed_keys else unpressed_style))
+
+    def update_display(self, model: DashboardModel):
+        self.label_speed.configure(text=f"Sent Speed: {model.speed} m/s")
+        self.label_yaw.configure(text=f"Sent Yaw: {(model.yaw*180.0/math.pi):.1f} deg")
+
+        self.label_pitch.configure(text=f"θ: {model.telemetry[0]}")
+        self.label_x.configure(text=f"δ: {model.telemetry[1]}")
+        self.label_yaw.configure(text=f"θ: {model.telemetry[2]}")
+        self.label_e_pitch.configure(text=f"θ Error: {model.telemetry[3]}")
+        self.label_e_x.configure(text=f"X Error: {model.telemetry[4]}")
+        self.label_e_yaw.configure(text=f"δ Error: {model.telemetry[5]}")
+        self.label_x_d.configure(text=f"X Desired: {model.telemetry[6]}")
+        # self.label_yaw_d.configure(text=f"δ Desired: {model.telemetry[7]}")
+
         if model.control_state == 0:
-            self.toggle_button.setText("Toggle Motor ON")
+            self.toggle_button.configure(text="Toggle Motor ON")
         else:
-            self.toggle_button.setText("Toggle Motor OFF")
+            self.toggle_button.configure(text="Toggle Motor OFF")
 
-    def getParamValues(self):
+    def get_param_values(self):
         paramvals = []
-        for box in self.paramboxes:
+        for entry in self.param_entries:
             try:
-                val = float(box.text())
-                if val is float('NaN') or val is float('inf'):
-                    raise ValueError
+                val = float(entry.get())
             except ValueError:
                 val = 0.0
             paramvals.append(val)
         return paramvals
 
-class DashboardController(QObject):
+    def update_textboxes(self, model: DashboardModel):
+        params = model.params
+        for i in range(min(len(params), len(self.param_entries))):
+            self.param_entries[i].delete(0, "end")
+            self.param_entries[i].insert(0, str(params[i]))
+
+
+class DashboardController:
     def __init__(self, model: DashboardModel, view: DashboardView, dashboard):
-        super().__init__()
-        self.model = model
-        self.view = view
-        self.dashboard = dashboard  # ref the dashboard to toggle bt
+        self.model : DashboardModel = model
+        self.view : DashboardView = view
+        self.dashboard = dashboard
         self.pressed_keys = set()
 
-        self.view.arrow_key_pressed.connect(self.onArrowKeyPressed)
-        self.view.arrow_key_released.connect(self.onArrowKeyReleased)
-        self.view.toggle_clicked.connect(self.onToggleClicked)
-        self.view.params_changed.connect(self.onSetParamClicked)
-        self.view.bluetooth_toggle_clicked.connect(self.onBluetoothToggleClicked)
-        self.model.state_changed.connect(self.updateView)
-        self.updateTextboxes()
+        # view call backs
+        self.view.on_arrow_key_pressed = self.on_arrow_key_pressed
+        self.view.on_arrow_key_released = self.on_arrow_key_released
+        self.view.on_toggle_clicked = self.on_toggle_clicked
+        self.view.on_params_changed = self.on_set_param_clicked
+        self.view.on_bluetooth_toggle_clicked = self.on_bluetooth_toggle_clicked
 
-    def onArrowKeyPressed(self, direction: str):
+        # update view upon model change
+        self.model.add_observer(self.update_view)
+        self.view.update_textboxes(self.model)
+
+    def on_arrow_key_pressed(self, direction: str):
         self.pressed_keys.add(direction)
-        self.processInput()
+        self.process_input()
 
-    def onArrowKeyReleased(self, direction: str):
-        self.pressed_keys.discard(direction)
-        self.processInput()
+    def on_arrow_key_released(self, direction: str):
+        if direction in self.pressed_keys:
+            self.pressed_keys.remove(direction)
+        self.process_input()
 
-    def processInput(self):
+    def process_input(self):
         f = 1 if "w" in self.pressed_keys else 0
         b = 1 if "s" in self.pressed_keys else 0
         l = 1 if "a" in self.pressed_keys else 0
         r = 1 if "d" in self.pressed_keys else 0
-        speed = (f - b) * 100
-        yaw = math.atan2(l - r, 1) * 180.0 / math.pi
+        speed = (f - b) * 0.4
+        yaw = math.atan2(r - l, 1)/2.0
         self.model.speed = speed
         self.model.yaw = yaw
 
-    def onToggleClicked(self):
+    def on_toggle_clicked(self):
         self.model.control_state = 1 if self.model.control_state == 0 else 0
 
-    def onSetParamClicked(self):
-        paramvals = self.view.getParamValues()
+    def on_set_param_clicked(self):
+        paramvals = self.view.get_param_values()
         self.model.params = paramvals
-        with open('appcache.txt', 'w') as f:
-            for val in paramvals:
-                f.write(str(val) + "\n")
+        try:
+            with open("appcache.txt", "w") as f:
+                for val in paramvals:
+                    f.write(str(val) + "\n")
+        except Exception as e:
+            print("Error writing to appcache.txt:", e)
 
-    def onBluetoothToggleClicked(self):
-        # use dashboard method to connect bt
-        self.dashboard.toggleBluetooth()
+    def on_bluetooth_toggle_clicked(self):
+        self.dashboard.toggle_bluetooth()
 
-    def updateView(self):
-        self.view.updateDisplay(self.model)
+    def update_view(self):
+        self.view.update_display(self.model)
 
-    def updateTextboxes(self):
-        params = self.model.getParams()
-        for i in range(min(len(params), len(self.view.paramboxes))):
-            self.view.paramboxes[i].setText(str(params[i]))
 
 class Dashboard:
     def __init__(self):
-        self.app = QApplication([])
-        self.app.setStyleSheet(open("style.css").read())
         self.model = DashboardModel()
         try:
-            with open('appcache.txt', 'r') as f:
-                vals = [float(val) for val in f.readlines()]
-                self.model.params = vals.copy()
+            if os.path.exists("appcache.txt"):
+                with open("appcache.txt", "r") as f:
+                    vals = [float(line.strip()) for line in f.readlines()]
+                    self.model.params = vals
+            else:
+                self.model.params = [0.0] * NUM_PARAMS
         except Exception as e:
-            self.model.params = [0.0]*NUM_PARAMS
-        self.model.state_changed.emit()
+            self.model.params = [0.0] * NUM_PARAMS
 
         self.view = DashboardView()
-        self.view.params_changed.emit()
-        # pass self to controller so it can call toggleBluetooth()
         self.controller = DashboardController(self.model, self.view, self)
-        self.view.updateArrowDisplay()
-        self.view.show()
-
-        # bt: initially no connection
         self.bluetooth = None
         self.bluetooth_thread = None
 
-    def toggleBluetooth(self):
-        from bluetooth import Bluetooth 
+        self.view.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def toggle_bluetooth(self):
+        from bluetooth import Bluetooth
         if self.bluetooth is None:
-            # start bt in new thread
             self.bluetooth = Bluetooth("ROBOT_C4", self)
             self.bluetooth_thread = threading.Thread(target=self.bluetooth.start, daemon=True)
             self.bluetooth_thread.start()
-            self.view.bt_button.setText("Disconnect Bluetooth")
+            self.view.bt_button.configure(text="Disconnect Bluetooth")
         else:
-            # stop bt and join thread
             self.bluetooth.stop()
             self.bluetooth_thread.join()
             self.bluetooth = None
-            self.view.bt_button.setText("Connect Bluetooth")
+            self.view.bt_button.configure(text="Connect Bluetooth")
+
+    def on_close(self):
+        # auto stop bt
+        if self.bluetooth is not None:
+            self.bluetooth.stop()
+            if self.bluetooth_thread is not None:
+                self.bluetooth_thread.join()
+            self.bluetooth = None
+        # destroying main view stop the mjpeg thread
+        self.view.destroy()
 
     @property
     def speed(self):
         return self.model.speed
+
     @speed.setter
     def speed(self, value):
         self.model.speed = value
@@ -338,27 +376,15 @@ class Dashboard:
     @property
     def yaw(self):
         return self.model.yaw
+
     @yaw.setter
     def yaw(self, value):
         self.model.yaw = value
 
     @property
-    def motor_left(self):
-        return self.model.motor_left
-    @motor_left.setter
-    def motor_left(self, value):
-        self.model.motor_left = value
-
-    @property
-    def motor_right(self):
-        return self.model.motor_right
-    @motor_right.setter
-    def motor_right(self, value):
-        self.model.motor_right = value
-
-    @property
     def control_state(self):
         return self.model.control_state
+
     @control_state.setter
     def control_state(self, value):
         self.model.control_state = value
@@ -366,21 +392,29 @@ class Dashboard:
     @property
     def pitch(self):
         return self.model.pitch
+
     @pitch.setter
     def pitch(self, value):
-        QTimer.singleShot(0, lambda: self.model.setPitch(value))
+        self.model.pitch = value
+
+    @property
+    def telemetry(self):
+        return self.model.telemetry
+    @telemetry.setter
+    def telemetry(self, value):
+        self.model.telemetry = value
 
     @property
     def params(self):
         return self.model.params
+
     @params.setter
     def params(self, value):
-        QTimer.singleShot(0, lambda: self.model.setParams(value))
-        self.model.params = value.copy()
+        self.model.params = value
 
     def exec_(self):
-        return self.app.exec_()
+        self.view.mainloop()
 
 if __name__ == "__main__":
-    dash = Dashboard()
-    exit(dash.exec_())
+    dashboard = Dashboard()
+    dashboard.exec_()
