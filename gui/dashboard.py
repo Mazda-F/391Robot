@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import customtkinter as ctk
 import threading, math, os
+from multiprocessing import Process, Queue
 from stream import StreamWidget
 from config import *
+from bluetooth import main_bluetooth_process
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -334,9 +336,11 @@ class DashboardController:
         yaw = math.atan2(r - l, 1)/2.0
         self.model.speed = speed
         self.model.yaw = yaw
+        self.dashboard.send_bluetooth()
 
     def on_toggle_motors(self):
         self.model.control_state = 1 if self.model.control_state == 0 else 0
+        self.dashboard.send_bluetooth()
 
     def on_set_param_clicked(self):
         paramvals = self.view.get_param_values()
@@ -347,6 +351,7 @@ class DashboardController:
                     f.write(str(val) + "\n")
         except Exception as e:
             print("Error writing to appcache.txt:", e)
+        self.dashboard.send_bluetooth()
 
     def on_bluetooth_toggle_clicked(self):
         self.dashboard.toggle_bluetooth()
@@ -370,38 +375,62 @@ class Dashboard:
 
         self.view = DashboardView()
         self.controller = DashboardController(self.model, self.view, self)
-        self.bluetooth = None
-        self.bluetooth_thread = None
+        self.bluetooth_proc = None
+        self.bt_to_queue = None
+        self.bt_from_queue = None
         self.view.toggle_motors.configure(state="disabled")
-
         self.view.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def toggle_bluetooth(self):
-        from bluetooth import Bluetooth
-        if self.bluetooth is None:
-            self.bluetooth = Bluetooth("ROBOT_C4", self)
-            self.bluetooth_thread = threading.Thread(target=self.bluetooth.start, daemon=True)
-            self.bluetooth_thread.start()
+        if self.bluetooth_proc is None:
+            self.bt_to_queue = Queue()
+            self.bt_from_queue = Queue()
+            self.bluetooth_proc = Process(
+                target=main_bluetooth_process,
+                args=("ROBOT_C4", self.bt_to_queue, self.bt_from_queue)
+            )
+
+            self.bluetooth_proc.start()
             self.view.bt_button.configure(text="Disconnect Bluetooth")
             self.view.toggle_motors.configure(state="enabled")
             self.model.bluetooth_connected = True
+            self.poll_bluetooth()  
+            self.send_bluetooth()
         else:
-            self.bluetooth.stop()
-            self.bluetooth_thread.join()
-            self.bluetooth = None
+            self.bt_to_queue.put({"command": "stop"})
+            self.bluetooth_proc.join()
+            self.bluetooth_proc = None
             self.view.bt_button.configure(text="Connect Bluetooth")
             self.view.toggle_motors.configure(state="disabled")
             self.model.bluetooth_connected = False
 
+    def send_bluetooth(self):
+        if self.bt_to_queue is not None:
+            cmd = {
+                "speed": self.model.speed,
+                "yaw": self.model.yaw,
+                "control_state": self.model.control_state,
+                "params": self.model.params
+            }
+            self.bt_to_queue.put(cmd)
+    
+    def poll_bluetooth(self):
+        if self.bt_from_queue is not None:
+            try:
+                while True:
+                    telemetry = self.bt_from_queue.get_nowait()
+                    self.model.telemetry = telemetry
+            except Exception:
+                pass
+        if self.model.bluetooth_connected:
+            self.view.after(5, self.poll_bluetooth) # 10 ms polling interval
+
     def on_close(self):
-        # auto stop bt
         self.model.bluetooth_connected = False
-        if self.bluetooth is not None:
-            self.bluetooth.stop()
-            if self.bluetooth_thread is not None:
-                self.bluetooth_thread.join()
-            self.bluetooth = None
-        # destroying main view stop the mjpeg streaming thread
+        if self.bluetooth_proc is not None:
+            self.bt_to_queue.put({"command": "stop"})
+            self.bluetooth_proc.join()
+            self.bluetooth_proc = None
         self.view.destroy()
 
     @property
