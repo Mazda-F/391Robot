@@ -2,3 +2,4 @@ __pycache__/
 appcache.txt
 libraries/
 tests/
+.vscode/

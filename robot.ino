@@ -121,23 +121,19 @@ float l_encoder_vec[N_FIR];
 float r_encoder_vec[N_FIR]; 
 
 // TimerDecorator imutimer("IMU_TIMER");
-enum mode {
-  IDLE, RUN
-};
 
 // Bluetooth
 #define DIN_COUNT 9
 #define DOUT_COUNT 9
-#define DIN_BUFSIZE 4*DIN_COUNT
 int control_mode = 0; // default manual
 float bt_din_buff[16];
 float bt_movement_buff[16];
 float bt_dout_buff[16];
 BLEService nanoService("13012F00-F8C3-4F4A-A8F4-15CD926DA146");
-BLEStringCharacteristic dout_com("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 64);
-BLEStringCharacteristic movement_com("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 32); 
-BLEStringCharacteristic control_com("13012F06-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
-BLEStringCharacteristic din_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 64);
+BLECharacteristic dout_com("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 12 + DOUT_COUNT*4);
+BLECharacteristic movement_com("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 32); 
+BLECharacteristic control_com("13012F06-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 16);
+BLECharacteristic din_com("13012F07-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 64);
 
 uint8_t readRegister8(uint8_t reg) {
     WIRE.beginTransmission(INC_ADDRESS);
@@ -410,7 +406,6 @@ void PID_step() {
     float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
     float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
     float output_y = Ky.Kp * err_yaw.prop + Ky.Ki * err_yaw.integ + Ky.Kd * err_yaw.deriv;
-    // float output_pid = output_t + output_x;
 
     float left_motor_pwm = output_t + output_x + output_y;
     float right_motor_pwm = output_t + output_x - output_y;
@@ -424,30 +419,6 @@ void PID_step() {
     bt_dout_buff[6] = x_desired;
     bt_dout_buff[7] = yaw_desired;
 
-    // Serial.print(-20);
-    // Serial.print(" ");
-    // Serial.print(20);
-    // Serial.print(" ");
-    // Serial.print(Kt.Ki);
-    // Serial.print("\t");
-    // Serial.print(x.prop);
-    // Serial.print("\t");
-    // Serial.print(yaw.prop);
-
-    // Serial.print("\t | \t");
-
-    // Serial.print(x_desired);
-    // Serial.print("\t");
-    // Serial.print(yaw_desired);
-
-    // Serial.print("\t | \t");
-
-    // Serial.print(err_x.prop);
-    // Serial.print("\t");
-    // Serial.print(err_yaw.prop);
-
-    // Serial.println(" ");
-
     driveMotors(left_motor_pwm, right_motor_pwm);  
 }
 
@@ -458,7 +429,7 @@ void driveMotors(float left_motor_pwm, float right_motor_pwm) {
     int leftSpeed = map(abs(left_motor_pwm), 0, 255, PWM_DEADZONE, 255);
     int rightSpeed = map(abs(right_motor_pwm), 0, 255, PWM_DEADZONE, 255);
 
-    // if (control_mode) {
+    if (control_mode) {
         //// Left motor
         if (left_motor_pwm > 0) {  // Forward
             analogWrite(Motor_L_f, 255);
@@ -475,93 +446,86 @@ void driveMotors(float left_motor_pwm, float right_motor_pwm) {
             analogWrite(Motor_R_f, 255-rightSpeed);
             analogWrite(Motor_R_r, 255);
         }
-    // } else {
-    //     analogWrite(Motor_L_f, 255);
-    //     analogWrite(Motor_R_f, 255);
-    //     analogWrite(Motor_L_r, 255);
-    //     analogWrite(Motor_R_r, 255);
+    } else {
+        analogWrite(Motor_L_f, 255);
+        analogWrite(Motor_R_f, 255);
+        analogWrite(Motor_L_r, 255);
+        analogWrite(Motor_R_r, 255);
 
-    //     // Reset integrator and position values
-    //     err_theta.integ = 0;
-    //     err_x.integ = 0;
-    //     err_yaw.integ = 0;
+        // Rst integrator and position values
+        err_theta.integ = 0;
+        err_x.integ = 0;
+        err_yaw.integ = 0;
 
-    //     lwheel.total_angle = 0.0;
-    //     lwheel.num_turns = 0; 
-    //     lwheel.prev_quad_num = 0;
-    //     lwheel.deg_angle = 0.0;
-    //     lwheel.x = 0.0;
+        lwheel.total_angle = 0.0;
+        lwheel.num_turns = 0; 
+        lwheel.prev_quad_num = 0;
+        lwheel.deg_angle = 0.0;
+        lwheel.x = 0.0;
 
-    //     rwheel.total_angle = 0.0;
-    //     rwheel.num_turns = 0; 
-    //     rwheel.prev_quad_num = 0;
-    //     rwheel.deg_angle = 0.0;
-    //     rwheel.x = 0.0;
-    // }
+        rwheel.total_angle = 0.0;
+        rwheel.num_turns = 0; 
+        rwheel.prev_quad_num = 0;
+        rwheel.deg_angle = 0.0;
+        rwheel.x = 0.0;
+    }
 }
 
 void bluetooth() {
-    float value;
+    float floatval;
     int intval;
     int numbytes;
     // read
     uint8_t dinbuff[36];
     uint8_t movbuff[8];
     uint8_t ctrlbuff[8];
-    // uint8_t doutbuff[DOUT_COUNT * 4];
-    // String control_mode_str = control_com.value();
-    // control_mode = control_mode_str.toInt();
+    uint8_t doutbuff[36];
+
     numbytes = control_com.readValue(ctrlbuff, 4);
     if (numbytes == 4) {
         memcpy(&intval, ctrlbuff, sizeof(float));
-        if (isnan(value)) {
+        if (isnan(intval)) {
             control_mode = 0;
-            Serial.print("NNAN");
+            Serial.print("NAN");
         } else {
-            control_mode = value;
+            control_mode = intval;
         }
     } 
-
+    
     numbytes = din_com.readValue(dinbuff, 36);
     if (numbytes == 36) {
         for (int i = 0; i < DIN_COUNT; i++) {
-            memcpy(&value, dinbuff + i * sizeof(float), sizeof(float));
-            if (isnan(value)) {
+            memcpy(&floatval, dinbuff + i * sizeof(float), sizeof(float));
+            if (isnan(floatval)) {
                 bt_din_buff[i] = 0.0;
-                Serial.print("NNAN");
+                Serial.print("NAN");
             } else {
-                bt_din_buff[i] = value;
+                bt_din_buff[i] = floatval;
             }
         }
     } else {
         Serial.println("[ERROR]: Not enough bytes recieved for data in");
     }
-    
-    Serial.println(" ");
 
     numbytes = movement_com.readValue(movbuff, 8); 
     if (numbytes == 8) {
         for (int i = 0; i < 2; i++) {
-            memcpy(&value, movbuff + i * sizeof(float), sizeof(float));
-            if (isnan(value)) {
+            memcpy(&floatval, movbuff + i * sizeof(float), sizeof(float));
+            if (isnan(floatval)) {
                 bt_movement_buff[i] = 0.0;
             } else {
-                bt_movement_buff[i] = value;
+                bt_movement_buff[i] = floatval;
             }
         }
     } else {
         Serial.println("[ERROR]: Not enough bytes recieved for movement");
     }
-    
-
 
     // write
-    // String dout_str;
-    // for (int i = 0; i < DOUT_COUNT; i++) {
-    //     dout_str += String(bt_dout_buff[i], (unsigned char)5) + String(", ");
-    // }
-    
-    // dout_com.writeValue(dout_str);
+    for (int i = 0; i < DOUT_COUNT; i++) {
+        memcpy(doutbuff + i * sizeof(float), &bt_dout_buff[i], sizeof(float));
+    }
+    dout_com.writeValue(doutbuff, DOUT_COUNT*sizeof(float), true);
 
     Kt.Kp = bt_din_buff[0];
     Kt.Ki = bt_din_buff[1];

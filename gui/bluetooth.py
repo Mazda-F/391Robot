@@ -28,21 +28,19 @@ class Bluetooth:
         print(f"[INFO] Bluetooth: Successfully connected to {device}")
         async with BleakClient(device) as client:
             while self._running:
-                # try:
-                #     din_str = await client.read_gatt_char(self.uuid["din"])
-                #     din_substrs = din_str.decode().split(", ")
-                #     din_data = []
-                #     for substr in din_substrs:
-                #         din_data.append(float(substr))
-                # except Exception:
-                #     din_data = [0.0]*NUM_DIN
-                
-                # if len(din_data) == NUM_DIN:
-                #     try:
-                #         self.dashboard.telemetry = din_data[:NUM_DIN]
-                #     except Exception as e:
-                #         print("[ERROR] Bluetooth: Error writing values to dashboard", e)
-                #         continue
+                try:
+                    din_bytes = await client.read_gatt_char(self.uuid["din"])
+                    din_data = struct.unpack_from('<' + 'f' * NUM_DIN, din_bytes)
+                except Exception as e:
+                    print("[ERROR] Bluetooth: Error recieving values from arduino", e)
+                    din_data = [0.0]*NUM_DIN
+                    
+                if len(din_data) == NUM_DIN:
+                    try:
+                        self.dashboard.telemetry = list(din_data)[:NUM_DIN].copy()
+                    except Exception as e:
+                        print("[ERROR] Bluetooth: Error writing values to dashboard", e)
+                        continue
 
                 try:
                     yaw = self.dashboard.yaw
@@ -63,7 +61,7 @@ class Bluetooth:
                 await self.sendRawBytes(client, movement_bytes, self.uuid["movement"])
                 await self.sendRawBytes(client, dout_bytes, self.uuid["dout"])
                 
-                await asyncio.sleep(0.001)
+                # await asyncio.sleep(0.001)
 
     async def sendRawBytes(self, client, bytes, uuid):
         await client.write_gatt_char(uuid, bytes, response=True)
