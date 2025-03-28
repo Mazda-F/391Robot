@@ -153,6 +153,8 @@ class DashboardView(ctk.CTk):
         self.label_e_delta = ctk.CTkLabel(self.telemetrics_frame, text="δ Error:")
         self.label_x_d = ctk.CTkLabel(self.telemetrics_frame, text="X Desired:")
         self.label_delta_d = ctk.CTkLabel(self.telemetrics_frame, text="δ Desired:")
+        self.label_lwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="L Wheel °:")
+        self.label_rwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="R Wheel °:")
 
         self.value_pitch = ctk.CTkLabel(self.telemetrics_frame, text="0")
         self.value_x = ctk.CTkLabel(self.telemetrics_frame, text="0")
@@ -162,6 +164,8 @@ class DashboardView(ctk.CTk):
         self.value_e_delta = ctk.CTkLabel(self.telemetrics_frame, text="0")
         self.value_x_d = ctk.CTkLabel(self.telemetrics_frame, text="0")
         self.value_delta_d = ctk.CTkLabel(self.telemetrics_frame, text="0")
+        self.value_lwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="0")
+        self.value_rwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="0")
 
         self.label_pitch.grid(  row=1, column=1, columnspan=2, padx=35, pady=5)
         self.label_x.grid(      row=2, column=1, columnspan=2, padx=35, pady=5)
@@ -171,6 +175,8 @@ class DashboardView(ctk.CTk):
         self.label_e_delta.grid(row=6, column=1, columnspan=2, padx=35, pady=5)
         self.label_x_d.grid(    row=7, column=1, columnspan=2, padx=35, pady=5)
         self.label_delta_d.grid(row=8, column=1, columnspan=2, padx=35, pady=5)
+        self.label_lwheel_angle.grid(row=8, column=1, columnspan=2, padx=35, pady=5)
+        self.label_rwheel_angle.grid(row=9, column=1, columnspan=2, padx=35, pady=5)
 
         self.value_pitch.grid(  row=1, column=3, columnspan=2, padx=35, pady=5)
         self.value_x.grid(      row=2, column=3, columnspan=2, padx=35, pady=5)
@@ -180,6 +186,8 @@ class DashboardView(ctk.CTk):
         self.value_e_delta.grid(row=6, column=3, columnspan=2, padx=35, pady=5)
         self.value_x_d.grid(    row=7, column=3, columnspan=2, padx=35, pady=5)
         self.value_delta_d.grid(row=8, column=3, columnspan=2, padx=35, pady=5)
+        self.value_lwheel_angle.grid(row=8, column=3, columnspan=2, padx=35, pady=5)
+        self.value_rwheel_angle.grid(row=9, column=3, columnspan=2, padx=35, pady=5)
 
         # Buttons Panel
         self.toggle_motors = ctk.CTkButton(self.buttons_frame, text="Toggle Motor ON", command=self._toggle_motors_clicked)
@@ -254,14 +262,16 @@ class DashboardView(ctk.CTk):
         self.label_speed.configure(text=f"Sent Speed: {model.speed} m/s")
         self.label_yaw.configure(text=f"Sent Yaw: {(model.yaw*180.0/math.pi):.1f} deg")
 
-        self.value_pitch.configure(text=f"{model.telemetry[0]:.4g}")
-        self.value_x.configure(text=f"{model.telemetry[1]:.4g}")
-        self.value_delta.configure(text=f"{model.telemetry[2]:.4g}")
-        self.value_e_pitch.configure(text=f"{model.telemetry[3]:.4g}")
-        self.value_e_x.configure(text=f"{model.telemetry[4]:.4g}")
-        self.value_e_delta.configure(text=f"{model.telemetry[5]:.4g}")
-        self.value_x_d.configure(text=f"{model.telemetry[6]:.4g}")
-        self.value_delta_d.configure(text=f"{model.telemetry[7]:.4g}")
+        self.value_pitch.configure(text=f"{model.telemetry[0]:.4f}")
+        self.value_x.configure(text=f"{model.telemetry[1]:.4f}")
+        self.value_delta.configure(text=f"{model.telemetry[2]:.4f}")
+        self.value_e_pitch.configure(text=f"{model.telemetry[3]:.4f}")
+        self.value_e_x.configure(text=f"{model.telemetry[4]:.4f}")
+        self.value_e_delta.configure(text=f"{model.telemetry[5]:.4f}")
+        self.value_x_d.configure(text=f"{model.telemetry[6]:.4f}")
+        self.value_delta_d.configure(text=f"{model.telemetry[7]:.4f}")
+        self.value_lwheel_angle.configure(text=f"{model.telemetry[8]:.4f}")
+        self.value_rwheel_angle.configure(text=f"{model.telemetry[9]:.4f}")
 
         if model.bluetooth_connected:
             if model.control_state == 0:
@@ -320,7 +330,7 @@ class DashboardController:
         b = 1 if "s" in self.pressed_keys else 0
         l = 1 if "a" in self.pressed_keys else 0
         r = 1 if "d" in self.pressed_keys else 0
-        speed = (f - b) * 0.4
+        speed = (f - b) * 1.0
         yaw = math.atan2(r - l, 1)/2.0
         self.model.speed = speed
         self.model.yaw = yaw
@@ -391,7 +401,7 @@ class Dashboard:
             if self.bluetooth_thread is not None:
                 self.bluetooth_thread.join()
             self.bluetooth = None
-        # destroying main view stop the mjpeg thread
+        # destroying main view stop the mjpeg streaming thread
         self.view.destroy()
 
     @property

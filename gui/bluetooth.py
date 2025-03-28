@@ -13,9 +13,7 @@ class Bluetooth:
         self.service_uuid = "180A"
         self.uuid = {
             "din":    "13012F01-F8C3-4F4A-A8F4-15CD926DA146",
-            "control":  "13012F06-F8C3-4F4A-A8F4-15CD926DA146",
-            "movement":    "13012F02-F8C3-4F4A-A8F4-15CD926DA146",
-            "dout" : "13012F07-F8C3-4F4A-A8F4-15CD926DA146",
+            "dout" : "13012F02-F8C3-4F4A-A8F4-15CD926DA146",
         }
         self.loop = asyncio.new_event_loop()
         self._running = True  
@@ -25,51 +23,43 @@ class Bluetooth:
         if not device:
             print(f"[ERROR] Bluetooth: Device not found")
             return
-        print(f"[INFO] Bluetooth: Successfully connected to {device}")
         async with BleakClient(device) as client:
+            print(f"[INFO] Bluetooth: Successfully connected to {device}")
+            
             while self._running:
                 try:
                     din_bytes = await client.read_gatt_char(self.uuid["din"])
+                    # din_bytes = await asyncio.wait_for(client.read_gatt_char(self.uuid["din"]), timeout=1.0)
                     din_data = struct.unpack_from('<' + 'f' * NUM_DIN, din_bytes)
                 except Exception as e:
-                    print("[ERROR] Bluetooth: Error recieving values from arduino", e)
+                    print("[ERROR] Bluetooth: Error recieving values from arduino:", e)
                     din_data = [0.0]*NUM_DIN
                     
                 if len(din_data) == NUM_DIN:
                     try:
                         self.dashboard.telemetry = list(din_data)[:NUM_DIN].copy()
                     except Exception as e:
-                        print("[ERROR] Bluetooth: Error writing values to dashboard", e)
+                        print("[ERROR] Bluetooth: Error writing values to dashboard:", e)
                         continue
 
                 try:
                     yaw = self.dashboard.yaw
                     speed = self.dashboard.speed
-                    control_mode = self.dashboard.control_state
+                    control_state = self.dashboard.control_state
                     params = self.dashboard.params
                 except Exception as e:
                     print("[ERROR] Bluetooth: Error reading dashboard values:", e)
                     continue
 
-                dout_bytes = struct.pack('<' + 'f' * NUM_PARAMS, *params)
-                movement = [yaw, speed]
+                param_bytes = struct.pack('<' + 'f' * NUM_PARAMS, *params)
+                movement = [speed, yaw]
                 movement_bytes = struct.pack('<' + 'f' * 2, *movement)
+                ctrl_bytes = struct.pack('<' + 'i', control_state)
+                dout_bytes = ctrl_bytes + movement_bytes + param_bytes
 
-                ctrl_bytes = struct.pack('<' + 'i', control_mode)
-
-                await self.sendRawBytes(client, ctrl_bytes, self.uuid["control"])
-                await self.sendRawBytes(client, movement_bytes, self.uuid["movement"])
-                await self.sendRawBytes(client, dout_bytes, self.uuid["dout"])
+                await client.write_gatt_char(self.uuid["dout"], dout_bytes, response=True)
                 
-                # await asyncio.sleep(0.001)
-
-    async def sendRawBytes(self, client, bytes, uuid):
-        await client.write_gatt_char(uuid, bytes, response=True)
-
-    async def sendCommand(self, client, val, uuid):
-        val_str = str(val)
-        val_bytes = bytearray(val_str, encoding="utf-8")
-        await client.write_gatt_char(uuid, val_bytes, response=True)
+                await asyncio.sleep(0.001)
 
     def start(self):
         asyncio.set_event_loop(self.loop)
