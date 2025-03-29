@@ -67,7 +67,7 @@ float kcomp = K_COMP;
 float encoderTimer = 0;
 struct wheeldata {
     int quad_num = 0; int prev_quad_num = 0;
-    float start_angle = 0.0; float prev_angle = 0.0; float wheel_angle = 0.0; float num_turns = 0; 
+    float start_angle = 0.0; float prev_angle = 0.0; float wheel_angle = 0.0; float num_turns = 0.0; 
     float total_angle = 0.0; float deg_angle = 0.0; float x = 0.0;
 };
 
@@ -209,35 +209,81 @@ void readIMU() {
     gx16 = gx16 - ((int16_t) gyr_cas_factor_zx) * gz16/512;
 }
 
-float readRawAngle(int bus) {
+// float calibrateWheelAngle(float* start_angle, float* num_turns, int* quad_num, int* prev_quad_num, int bus, bool reverse) {
+//     float deg_angle, raw_angle, corrected_angle;
+//     Wire.beginTransmission(MUX_ADDRESS);
+//     Wire.write(1<<bus);
+//     Wire.endTransmission();
+
+//     Wire.beginTransmission(0x36);                         
+//     Wire.write(0x0D);                                     //register map: Raw angle (7:0)
+//     Wire.endTransmission();                              
+//     Wire.requestFrom(0x36, 1);                            //request from the sensor
+//     while (Wire.available() == 0);                        
+//     int lowbyte = Wire.read();                                
+
+//     // ----- read high-order bits 11:8
+//     Wire.beginTransmission(0x36);
+//     Wire.write(0x0C);                                     //register map: Raw angle (11:8)
+//     Wire.endTransmission();
+//     Wire.requestFrom(0x36, 1);
+//     while (Wire.available() == 0);
+//     word highbyte = Wire.read();
+
+//     // ----- combine bytes
+//     highbyte = highbyte << 8;                             // shift highbyte to left
+//     raw_angle = highbyte | lowbyte;                        // combine bytes to get 12-bit value 11:0
+//     deg_angle = raw_angle * 0.087890625;                    // 360/4096 = 0.087890625
+
+//     if (reverse) {
+//         deg_angle = 360.0 - deg_angle;
+//     }
+//     if(deg_angle >= 0 && deg_angle <=90) (*quad_num) = 1;
+//     if(deg_angle > 90 && deg_angle <=180) (*quad_num) = 2;
+//     if(deg_angle > 180 && deg_angle <=270) (*quad_num) = 3;
+//     if(deg_angle > 270 && deg_angle <360) (*quad_num) = 4;
+//     int qn = *quad_num;
+//     int prev_qn = *prev_quad_num;
+//     if(qn != prev_qn) {  
+//         if(qn == 1 && prev_qn == 4){
+//               (*num_turns) += 1.0;  // 4 --> 1 transition: CW rotation
+//         }
+//         if(qn == 4 && prev_qn == 1){
+//               (*num_turns) -= 1.0; // 1 --> 4 transition: CCW rotation
+//         }
+//         *prev_quad_num = *quad_num; 
+//     }  
+
+//     return deg_angle;
+// }
+
+void calibrateWheelAngle(float* start_angle, float* num_turns, int* quad_num, int* prev_quad_num, int bus) {
     float deg_angle, raw_angle, corrected_angle;
+    
     Wire.beginTransmission(MUX_ADDRESS);
     Wire.write(1<<bus);
     Wire.endTransmission();
 
-    Wire.beginTransmission(0x36);                         //connect to the sensor
-    Wire.write(0x0D);                                     //figure 21 - register map: Raw angle (7:0)
-    Wire.endTransmission();                               //end transmission
-    Wire.requestFrom(0x36, 1);                            //request from the sensor
-    while (Wire.available() == 0);                        //wait until it becomes available
-    int lowbyte = Wire.read();                                //Reading the data after the request
-
-    // ----- read high-order bits 11:8
-    Wire.beginTransmission(0x36);
-    Wire.write(0x0C);                                     //figure 21 - register map: Raw angle (11:8)
+    Wire.beginTransmission(ENCODER_ADDRESS); 
+    Wire.write(0x0D); 
+    Wire.endTransmission(); 
+    Wire.requestFrom(ENCODER_ADDRESS, 1); 
+    while(Wire.available() == 0); // blocking
+    int lowbyte = Wire.read(); 
+    Wire.beginTransmission(ENCODER_ADDRESS);
+    Wire.write(0x0C);
     Wire.endTransmission();
-    Wire.requestFrom(0x36, 1);
-    while (Wire.available() == 0);
+    Wire.requestFrom(ENCODER_ADDRESS, 1);
+    
+    while(Wire.available() == 0);  
     word highbyte = Wire.read();
+    highbyte = highbyte << 8; 
+    raw_angle = highbyte | lowbyte;  
+    deg_angle = (raw_angle) * 0.087890625;  // 360/(2^12) = 360/4096 = 0.087890625
 
-    // ----- combine bytes
-    highbyte = highbyte << 8;                             // shift highbyte to left
-    raw_angle = highbyte | lowbyte;                        // combine bytes to get 12-bit value 11:0
-    deg_angle = raw_angle * 0.087890625;                    // 360/4096 = 0.087890625
-
-    //Serial.print("Deg angle: ");
-    //Serial.println(degAngle, 2);                          //absolute position of the encoder within the 0-360 circle
-    return deg_angle;
+    *prev_quad_num = 1;
+    *quad_num = 1;
+    *start_angle = deg_angle;
 }
 
 void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* prev_quad_num, float start_angle, int bus, bool reverse) {
@@ -289,7 +335,7 @@ void getWheelAngle(float* total_angle, float* num_turns, int* quad_num, int* pre
         *prev_quad_num = *quad_num; 
     }  
     *total_angle = ((*num_turns)*360) + corrected_angle;
-  }
+}
 
 void calibrateIMU() {
     for (int i = 0; i < 2000; i++) {
@@ -370,10 +416,10 @@ void PID_step() {
     
     /*** X ***/
     if (control_state == 1 && prev_control_state == 0) {
-        lwheel.start_angle = readRawAngle(ENCODER_L);  
-        rwheel.start_angle = readRawAngle(ENCODER_R);  
-        lwheel.prev_angle = lwheel.start_angle;                
-        rwheel.prev_angle = rwheel.start_angle;  
+        calibrateWheelAngle(&(lwheel.start_angle), &(lwheel.num_turns), &(lwheel.quad_num), 
+            &(lwheel.prev_quad_num), ENCODER_L);
+        calibrateWheelAngle(&(rwheel.start_angle), &(rwheel.num_turns), &(rwheel.quad_num), 
+            &(rwheel.prev_quad_num), ENCODER_R); 
     }
 
     if (control_state) {
@@ -392,13 +438,15 @@ void PID_step() {
         lwheel.total_angle      = 0.0;
         lwheel.wheel_angle      = 0.0;
         lwheel.num_turns        = 0; 
-        lwheel.prev_quad_num    = 0;
+        lwheel.quad_num         = 1;
+        lwheel.prev_quad_num    = 1;
         lwheel.deg_angle        = 0.0;
         lwheel.x                = 0.0;
         rwheel.total_angle      = 0.0;
         rwheel.wheel_angle      = 0.0;
         rwheel.num_turns        = 0; 
-        rwheel.prev_quad_num    = 0;
+        rwheel.quad_num         = 1;
+        rwheel.prev_quad_num    = 1;
         rwheel.deg_angle        = 0.0;
         rwheel.x                = 0.0;
     }
@@ -512,8 +560,10 @@ void bluetooth() {
                 bt_din_buff[i] = 0.0;
                 Serial.print("NAN");
             } 
+            Serial.print(bt_din_buff[i]);
+            Serial.print("\t");
         }
-
+        Serial.println(" ");
     } else {
         Serial.println("[ERROR]: Not enough bytes recieved for DATA IN");
         control_state = 0;
@@ -547,10 +597,11 @@ void setup() {
     Wire.begin();                                         // start i2C
     Wire.setClock(I2C_CLOCK_SPEED);     
 
-    lwheel.start_angle = readRawAngle(ENCODER_L);  
-    rwheel.start_angle = readRawAngle(ENCODER_R);  
-    lwheel.prev_angle = lwheel.start_angle;                
-    rwheel.prev_angle = rwheel.start_angle;                
+    calibrateWheelAngle(&(lwheel.start_angle), &(lwheel.num_turns), &(lwheel.quad_num), 
+        &(lwheel.prev_quad_num), ENCODER_L);
+    calibrateWheelAngle(&(rwheel.start_angle), &(rwheel.num_turns), &(rwheel.quad_num), 
+        &(rwheel.prev_quad_num), ENCODER_R); 
+            
     initIMU();
     calibrateIMU();
 
