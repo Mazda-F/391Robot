@@ -12,10 +12,10 @@ class Bluetooth:
         self.device_name = device_name
         self.to_queue = to_queue      
         self.from_queue = from_queue 
-        self.service_uuid = "180A"
+        self.service_uuid = "449f9707-8365-440d-94c0-25c7663b292f"
         self.uuid = {
-            "din":    "13012F01-F8C3-4F4A-A8F4-15CD926DA146",
-            "dout" : "13012F02-F8C3-4F4A-A8F4-15CD926DA146",
+            "din":    "b9a7479e-6475-4093-ae2a-6ee19eae177a",
+            "dout" : "0d4e68bf-be73-4ddc-847c-ea40afaef5ef",
         }
         self.loop = asyncio.new_event_loop()
         self._running = True  
@@ -35,8 +35,8 @@ class Bluetooth:
             while self._running:
                 # read from arduino and write to gui
                 try:
-                    # din_bytes = await client.read_gatt_char(self.uuid["din"])
-                    din_bytes = await asyncio.wait_for(client.read_gatt_char(self.uuid["din"]), timeout=1.0)
+                    din_bytes = await client.read_gatt_char(self.uuid["din"])
+                    # din_bytes = await asyncio.wait_for(client.read_gatt_char(self.uuid["din"]), timeout=0.5)
                     din_data = struct.unpack_from('<' + 'f' * NUM_DIN, din_bytes)
                 except Exception as e:
                     print("[ERROR] Bluetooth: Error recieving values from arduino:", e)

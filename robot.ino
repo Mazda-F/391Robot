@@ -3,7 +3,6 @@
 #include <Wire.h> 
 #include "bmi270.h"
  
-
 #define Motor_R_f D2
 #define Motor_R_r D3
 #define Motor_L_f D4
@@ -131,9 +130,9 @@ uint8_t dinbuff[NUM_DIN * 4];
 uint8_t doutbuff[NUM_DOUT * 4];
 float bt_din_buff[NUM_DIN];
 float bt_dout_buff[NUM_DOUT];
-BLEService nanoService("13012F00-F8C3-4F4A-A8F4-15CD926DA146");
-BLECharacteristic dout_com("13012F01-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 12 + NUM_DOUT*4);
-BLECharacteristic din_com("13012F02-F8C3-4F4A-A8F4-15CD926DA146", BLERead | BLEWrite, 12 + NUM_DIN*4);
+BLEService nanoService("449f9707-8365-440d-94c0-25c7663b292f");
+BLECharacteristic dout_com("b9a7479e-6475-4093-ae2a-6ee19eae177a", BLERead | BLEWrite, 12 + NUM_DOUT*4);
+BLECharacteristic din_com("0d4e68bf-be73-4ddc-847c-ea40afaef5ef", BLERead | BLEWrite, 12 + NUM_DIN*4);
 
 
 uint8_t readRegister8(uint8_t reg) {
@@ -420,6 +419,9 @@ void PID_step() {
             &(lwheel.prev_quad_num), ENCODER_L);
         calibrateWheelAngle(&(rwheel.start_angle), &(rwheel.num_turns), &(rwheel.quad_num), 
             &(rwheel.prev_quad_num), ENCODER_R); 
+        err_theta.integ = 0.0;
+        err_x.integ = 0.0;
+        err_yaw.integ = 0.0;
     }
 
     if (control_state) {
@@ -499,8 +501,16 @@ void PID_step() {
     bt_dout_buff[7] = yaw_desired;
     bt_dout_buff[8] = lwheel.wheel_angle;
     bt_dout_buff[9] = rwheel.wheel_angle;
-
+    // bt_dout_buff[10] = left_motor_pwm;
+    // bt_dout_buff[11] = rwheel.wheel_angle;
+    Serial.print(left_motor_pwm);
+    Serial.print("\t");
+    
+    Serial.print(right_motor_pwm);
+    Serial.print("\t");
+    Serial.println(" ");
     driveMotors(left_motor_pwm, right_motor_pwm);  
+    
 }
 
 
@@ -546,28 +556,30 @@ void driveMotors(float left_motor_pwm, float right_motor_pwm) {
 
 void bluetooth() {
     // read
+    int intval;
     if (din_com.readValue(dinbuff, NUM_DIN*4) == NUM_DIN*4) {
         // the first 4 bytes belong to the control_command, which is an int
         prev_control_state = control_state;
-        memcpy(&control_state, dinbuff, sizeof(int));
+        memcpy(&intval, dinbuff, sizeof(int));
+        control_state = intval;
         if (isnan(control_state)) {
-            control_state = 0;
+            control_state = prev_control_state;
         }
+        
         // the remaining are floats
         for (int i = 1; i < NUM_DIN; i++) {
             memcpy(&bt_din_buff[i], dinbuff + i * sizeof(float), sizeof(float));
             if (isnan(bt_din_buff[i])) {
                 bt_din_buff[i] = 0.0;
-                Serial.print("NAN");
+                // Serial.print("NAN");
             } 
-            Serial.print(bt_din_buff[i]);
-            Serial.print("\t");
         }
-        Serial.println(" ");
     } else {
         Serial.println("[ERROR]: Not enough bytes recieved for DATA IN");
-        control_state = 0;
+        control_state = prev_control_state;
+        return;
     }
+
 
     // write
     for (int i = 0; i < NUM_DOUT; i++) {
@@ -605,7 +617,10 @@ void setup() {
     initIMU();
     calibrateIMU();
 
-    if (!BLE.begin()) { Serial.println("Starting Bluetooth Low Energy Module Failed."); while (1);}
+    if (!BLE.begin()) { 
+        Serial.println("Starting Bluetooth Low Energy Module Failed.");
+         while (1);
+    }
     pinMode(Motor_L_f, OUTPUT);
     pinMode(Motor_L_r, OUTPUT);
     pinMode(Motor_R_f, OUTPUT);
