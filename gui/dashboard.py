@@ -110,10 +110,10 @@ class DashboardView(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("C4 Dashboard")
-        self.geometry("1180x720")
+        self.geometry("1380x720")
         self.pressed_keys = set()
 
-        self.tabview = ctk.CTkTabview(self, width=1080, height=720)
+        self.tabview = ctk.CTkTabview(self, width=1200, height=720)
         self.tabview.pack(fill="both", expand=True)
         self.tabview.add("Dashboard")
         self.tabview.add("Settings")
@@ -355,7 +355,7 @@ class DashboardController:
         b = 1 if "s" in self.pressed_keys else 0
         l = 1 if "a" in self.pressed_keys else 0
         r = 1 if "d" in self.pressed_keys else 0
-        speed = (f - b) * 1.0
+        speed = (f - b) * 0.5
         yaw = math.atan2(r - l, 1)/2.0
         self.model.speed = speed
         self.model.yaw = yaw
@@ -430,10 +430,10 @@ class Dashboard:
 
     def send_bluetooth(self):
         
-        now = time.time()
-        if now - self.last_bt_send < 0.1:
-            return
-        self.last_bt_send = now
+        # now = time.time()
+        # if now - self.last_bt_send < 0.001:
+        #     return
+        # self.last_bt_send = now
 
         if self.bt_to_queue is not None:
             cmd = {

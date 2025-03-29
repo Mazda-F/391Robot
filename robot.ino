@@ -454,8 +454,8 @@ void PID_step() {
     float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
     float output_y = Ky.Kp * err_yaw.prop + Ky.Ki * err_yaw.integ + Ky.Kd * err_yaw.deriv;
 
-    float left_motor_pwm = output_t + output_x + output_y;
-    float right_motor_pwm = output_t + output_x - output_y;
+    float left_motor_pwm = output_t + output_x - output_y;
+    float right_motor_pwm = output_t + output_x + output_y;
 
     bt_dout_buff[0] = (float)theta.prop;
     bt_dout_buff[1] = (float)x.prop;
