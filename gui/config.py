@@ -1,2 +1,2 @@
 NUM_PARAMS = 9
-NUM_DIN = 10
+NUM_DIN = 13

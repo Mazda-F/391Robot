@@ -5,6 +5,7 @@ import threading
 import struct
 from config import *
 from multiprocessing import Queue
+import queue
 
 
 class Bluetooth:
@@ -51,24 +52,47 @@ class Bluetooth:
                         continue
                 
                 # read from gui and write to arduino
-                try:
-                    while True:
+                latest_cmd = None
+                # Drain the entire queue
+                while True:
+                    try:
                         cmd = self.to_queue.get_nowait()
-                        if cmd.get("command") == "stop":
-                            self._running = False
-                            print("Stopped")
-                            break
-                        if "speed" in cmd:
-                            self.speed = cmd["speed"]
-                        if "yaw" in cmd:
-                            self.yaw = cmd["yaw"]
-                        if "control_state" in cmd:
-                            self.control_state = cmd["control_state"]
-                        if "params" in cmd:
-                            self.params = cmd["params"]
-                        # self.to_queue.task_done()
-                except Exception:
-                    pass
+                        latest_cmd = cmd  # Always update to the most recent command
+                    except queue.Empty:
+                        break
+
+                if latest_cmd:
+                    if latest_cmd.get("command") == "stop":
+                        self._running = False
+                        print("Stopped")
+                    else:
+                        self.speed = latest_cmd.get("speed", self.speed)
+                        self.yaw = latest_cmd.get("yaw", self.yaw)
+                        self.control_state = latest_cmd.get("control_state", self.control_state)
+                        self.params = latest_cmd.get("params", self.params)
+
+
+
+
+                # try:
+                #     while True:
+                #         cmd = self.to_queue.get_nowait()
+                #         if cmd.get("command") == "stop":
+                #             self._running = False
+                #             print("Stopped")
+                #             break
+                #         if "speed" in cmd:
+                #             self.speed = cmd["speed"]
+                #         if "yaw" in cmd:
+                #             self.yaw = cmd["yaw"]
+                #         if "control_state" in cmd:
+                #             self.control_state = cmd["control_state"]
+                #         if "params" in cmd:
+                #             self.params = cmd["params"]
+                #         # self.to_queue.task_done()
+                # except queue.Empty as e:
+                #     print("[WARNING] Bluetooth: Queue is empty!", e)
+                #     pass
 
                 if not self._running:
                     break
@@ -83,7 +107,7 @@ class Bluetooth:
                 except Exception as e:
                     print("[ERROR] Bluetooth: Error writing values to arduino:", e)
 
-                await asyncio.sleep(0.001)
+                await asyncio.sleep(0.02)
 
     def start(self):
         asyncio.set_event_loop(self.loop)

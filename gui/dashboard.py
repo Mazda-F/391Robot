@@ -5,6 +5,9 @@ from multiprocessing import Process, Queue
 from stream import StreamWidget
 from config import *
 from bluetooth import main_bluetooth_process
+import queue
+import numpy as np
+import time
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -157,6 +160,10 @@ class DashboardView(ctk.CTk):
         self.label_delta_d = ctk.CTkLabel(self.telemetrics_frame, text="δ Desired:")
         self.label_lwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="L Wheel °:")
         self.label_rwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="R Wheel °:")
+        self.label_lpwm = ctk.CTkLabel(self.telemetrics_frame, text="L PWM:")
+        self.label_rpwm = ctk.CTkLabel(self.telemetrics_frame, text="R PWM:")
+        self.label_cycp = ctk.CTkLabel(self.telemetrics_frame, text="Cycle Period:")
+        self.label_cycf = ctk.CTkLabel(self.telemetrics_frame, text="Cycle Freq. :")
 
         self.value_pitch = ctk.CTkLabel(self.telemetrics_frame, text="0")
         self.value_x = ctk.CTkLabel(self.telemetrics_frame, text="0")
@@ -168,6 +175,10 @@ class DashboardView(ctk.CTk):
         self.value_delta_d = ctk.CTkLabel(self.telemetrics_frame, text="0")
         self.value_lwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="0")
         self.value_rwheel_angle = ctk.CTkLabel(self.telemetrics_frame, text="0")
+        self.value_lpwm = ctk.CTkLabel(self.telemetrics_frame, text="0")
+        self.value_rpwm = ctk.CTkLabel(self.telemetrics_frame, text="0")
+        self.value_cycp = ctk.CTkLabel(self.telemetrics_frame, text="0")
+        self.value_cycf = ctk.CTkLabel(self.telemetrics_frame, text="0")
 
         self.label_pitch.grid(  row=1, column=1, columnspan=2, padx=35, pady=5)
         self.label_x.grid(      row=2, column=1, columnspan=2, padx=35, pady=5)
@@ -179,6 +190,10 @@ class DashboardView(ctk.CTk):
         self.label_delta_d.grid(row=8, column=1, columnspan=2, padx=35, pady=5)
         self.label_lwheel_angle.grid(row=8, column=1, columnspan=2, padx=35, pady=5)
         self.label_rwheel_angle.grid(row=9, column=1, columnspan=2, padx=35, pady=5)
+        self.label_lpwm.grid(row=10, column=1, columnspan=2, padx=35, pady=5)
+        self.label_rpwm.grid(row=11, column=1, columnspan=2, padx=35, pady=5)
+        self.label_cycp.grid(row=12, column=1, columnspan=2, padx=35, pady=5)
+        self.label_cycf.grid(row=13, column=1, columnspan=2, padx=35, pady=5)
 
         self.value_pitch.grid(  row=1, column=3, columnspan=2, padx=35, pady=5)
         self.value_x.grid(      row=2, column=3, columnspan=2, padx=35, pady=5)
@@ -190,6 +205,10 @@ class DashboardView(ctk.CTk):
         self.value_delta_d.grid(row=8, column=3, columnspan=2, padx=35, pady=5)
         self.value_lwheel_angle.grid(row=8, column=3, columnspan=2, padx=35, pady=5)
         self.value_rwheel_angle.grid(row=9, column=3, columnspan=2, padx=35, pady=5)
+        self.value_lpwm.grid(row=10, column=3, columnspan=2, padx=35, pady=5)
+        self.value_rpwm.grid(row=11, column=3, columnspan=2, padx=35, pady=5)
+        self.value_cycp.grid(row=12, column=3, columnspan=2, padx=35, pady=5)
+        self.value_cycf.grid(row=13, column=3, columnspan=2, padx=35, pady=5)
 
         # Buttons Panel
         self.toggle_motors = ctk.CTkButton(self.buttons_frame, text="Toggle Motor ON", command=self._toggle_motors_clicked)
@@ -274,6 +293,10 @@ class DashboardView(ctk.CTk):
         self.value_delta_d.configure(text=f"{model.telemetry[7]:.4f}")
         self.value_lwheel_angle.configure(text=f"{model.telemetry[8]:.4f}")
         self.value_rwheel_angle.configure(text=f"{model.telemetry[9]:.4f}")
+        self.value_lpwm.configure(text=f"{model.telemetry[10]:.4f}")
+        self.value_rpwm.configure(text=f"{model.telemetry[11]:.4f}")
+        self.value_cycp.configure(text=f"{model.telemetry[12]:.4f}")
+        self.value_cycf.configure(text=f"{np.float32(1.0)/np.float32(model.telemetry[12]):.4f}")
 
         if model.bluetooth_connected:
             if model.control_state == 0:
@@ -373,6 +396,7 @@ class Dashboard:
         except Exception as e:
             self.model.params = [0.0] * NUM_PARAMS
 
+        self.last_bt_send = 0
         self.view = DashboardView()
         self.controller = DashboardController(self.model, self.view, self)
         self.bluetooth_proc = None
@@ -405,6 +429,12 @@ class Dashboard:
             self.model.bluetooth_connected = False
 
     def send_bluetooth(self):
+        
+        now = time.time()
+        if now - self.last_bt_send < 0.1:
+            return
+        self.last_bt_send = now
+
         if self.bt_to_queue is not None:
             cmd = {
                 "speed": self.model.speed,
@@ -416,14 +446,18 @@ class Dashboard:
     
     def poll_bluetooth(self):
         if self.bt_from_queue is not None:
-            try:
-                while True:
+            latest_telemetry = None
+            while True:
+                try:
                     telemetry = self.bt_from_queue.get_nowait()
-                    self.model.telemetry = telemetry
-            except Exception:
-                pass
+                    latest_telemetry = telemetry 
+                except queue.Empty:
+                    break
+
+            if latest_telemetry is not None:
+                self.model.telemetry = latest_telemetry
         if self.model.bluetooth_connected:
-            self.view.after(5, self.poll_bluetooth) # 10 ms polling interval
+            self.view.after(10, self.poll_bluetooth) # 10 ms polling interval
 
     def on_close(self):
         self.model.bluetooth_connected = False

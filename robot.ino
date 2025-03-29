@@ -65,7 +65,7 @@ float kcomp = K_COMP;
 #define WHEEL_DISTANCE 0.245
 float encoderTimer = 0;
 struct wheeldata {
-    int quad_num = 0; int prev_quad_num = 0;
+    int quad_num = 1; int prev_quad_num = 1;
     float start_angle = 0.0; float prev_angle = 0.0; float wheel_angle = 0.0; float num_turns = 0.0; 
     float total_angle = 0.0; float deg_angle = 0.0; float x = 0.0;
 };
@@ -122,7 +122,7 @@ float r_encoder_vec[N_FIR];
 
 // Bluetooth
 #define NUM_DIN 12
-#define NUM_DOUT 10
+#define NUM_DOUT 13
 #define COMMAND_HOLD_MILLIS 10
 int control_state = 0;
 int prev_control_state = 0;
@@ -190,7 +190,7 @@ void initIMU(){
     writeRegister8(GYRO, 0xE9); //GYRO_CONF  // 0xE9
     writeRegister8(PWR_CONF, 0x02); //disable power saving
     gyr_cas_factor_zx = (readRegister8(0x3C) & 0b01111111);
-    delay(1000);
+    delay(500);
 }
 
 void readIMU() {
@@ -207,54 +207,6 @@ void readIMU() {
     gz16 =             (WIRE.read()   | WIRE.read() << 8); // data 18 | 19
     gx16 = gx16 - ((int16_t) gyr_cas_factor_zx) * gz16/512;
 }
-
-// float calibrateWheelAngle(float* start_angle, float* num_turns, int* quad_num, int* prev_quad_num, int bus, bool reverse) {
-//     float deg_angle, raw_angle, corrected_angle;
-//     Wire.beginTransmission(MUX_ADDRESS);
-//     Wire.write(1<<bus);
-//     Wire.endTransmission();
-
-//     Wire.beginTransmission(0x36);                         
-//     Wire.write(0x0D);                                     //register map: Raw angle (7:0)
-//     Wire.endTransmission();                              
-//     Wire.requestFrom(0x36, 1);                            //request from the sensor
-//     while (Wire.available() == 0);                        
-//     int lowbyte = Wire.read();                                
-
-//     // ----- read high-order bits 11:8
-//     Wire.beginTransmission(0x36);
-//     Wire.write(0x0C);                                     //register map: Raw angle (11:8)
-//     Wire.endTransmission();
-//     Wire.requestFrom(0x36, 1);
-//     while (Wire.available() == 0);
-//     word highbyte = Wire.read();
-
-//     // ----- combine bytes
-//     highbyte = highbyte << 8;                             // shift highbyte to left
-//     raw_angle = highbyte | lowbyte;                        // combine bytes to get 12-bit value 11:0
-//     deg_angle = raw_angle * 0.087890625;                    // 360/4096 = 0.087890625
-
-//     if (reverse) {
-//         deg_angle = 360.0 - deg_angle;
-//     }
-//     if(deg_angle >= 0 && deg_angle <=90) (*quad_num) = 1;
-//     if(deg_angle > 90 && deg_angle <=180) (*quad_num) = 2;
-//     if(deg_angle > 180 && deg_angle <=270) (*quad_num) = 3;
-//     if(deg_angle > 270 && deg_angle <360) (*quad_num) = 4;
-//     int qn = *quad_num;
-//     int prev_qn = *prev_quad_num;
-//     if(qn != prev_qn) {  
-//         if(qn == 1 && prev_qn == 4){
-//               (*num_turns) += 1.0;  // 4 --> 1 transition: CW rotation
-//         }
-//         if(qn == 4 && prev_qn == 1){
-//               (*num_turns) -= 1.0; // 1 --> 4 transition: CCW rotation
-//         }
-//         *prev_quad_num = *quad_num; 
-//     }  
-
-//     return deg_angle;
-// }
 
 void calibrateWheelAngle(float* start_angle, float* num_turns, int* quad_num, int* prev_quad_num, int bus) {
     float deg_angle, raw_angle, corrected_angle;
@@ -357,8 +309,8 @@ float getAngle() { // returns the angle IN RADIANS
     pitch_rps = ((float) gy16) / 16.384 - q_cal;
     pitch_rps *= M_PI/180;
 
-    angle_curr_time = millis();
-    angle_dt = (angle_curr_time - angle_prev_time) / 1000.0;
+    angle_curr_time = micros();
+    angle_dt = (angle_curr_time - angle_prev_time) / 1000000.0;
     angle_prev_time = angle_curr_time;
 
     pitch_a = atan(-ax/sqrt(ay*ay + az*az));
@@ -378,20 +330,38 @@ float FIR(float new_data, float* databuf, float* coeffs, int num_coeffs) {
         databuf[i] = databuf[i - 1];
         sum += databuf[i] * coeffs[i];
     }
-    databuf[0] = new_data;
-    sum += new_data * coeffs[0];          
+    if (isnan(new_data)) {
+        databuf[0] = databuf[1];
+    } else {
+        databuf[0] = new_data;
+    }
+    sum += new_data * coeffs[0];
+    if (isnan(sum)) sum = 0.0;        
     return sum;
 }
 
 float IIR(float newSample, float *previousValue, float beta) {
     float filterVal = beta * (*previousValue) + (1-beta) * (newSample);
     (*previousValue) = filterVal; 
+    if (isnan(filterVal)) {
+        filterVal = 0.0;
+        if (isnan(*previousValue)) {
+            *previousValue = 0.0;
+        }
+        else {
+            filterVal = *previousValue;
+        }
+    }
+    
     return filterVal;
 }
 
 void PID_step() {
-    pid_curr_time = millis();
-    pid_dt = (pid_curr_time - pid_prev_time) / 1000.0;
+    pid_curr_time = micros();
+    pid_dt = (pid_curr_time - pid_prev_time) / 1000000.0;
+    if (pid_dt < 0.000001) {
+        pid_dt = 0.001;
+    }
     pid_prev_time = pid_curr_time;
 
     if (control_state) {
@@ -405,7 +375,11 @@ void PID_step() {
     /*** THETA ***/
     // theta.prop = getAngle() * 180/M_PI;
     theta.prop = getAngle();
-    theta.prev_prop = theta.prop;
+    if (isnan(theta.prop)) {
+        theta.prop = theta.prev_prop;
+    } else {
+        theta.prev_prop = theta.prop;
+    }
 
     err_theta.prop = 0.0 - theta.prop;
     err_theta.integ += err_theta.prop * pid_dt;
@@ -455,12 +429,8 @@ void PID_step() {
     
     x.prop = (lwheel.x + rwheel.x) / 2.0;
     x.deriv = (x.prop - x.prev_prop) / pid_dt;
-    x.deriv = IIR(x.deriv, &x.temp1, 0.98);
-    x.dd = (x.deriv - x.prev_deriv) / pid_dt;
-    x.dd = IIR(x.dd, &x.temp2, 0.98);
+    x.deriv = IIR(x.deriv, &x.prev_deriv, 0.98);
     x.prev_prop = x.prop;
-    x.prev_deriv = x.deriv;
-    x.prev_dd = x.dd;
 
     err_x.prop = x_desired - x.prop;
     err_x.integ += err_x.prop * pid_dt;
@@ -471,12 +441,8 @@ void PID_step() {
     /*** YAW ***/
     yaw.prop = ((lwheel.x -  rwheel.x) / WHEEL_DISTANCE);
     yaw.deriv = (yaw.prop - yaw.prev_prop) / pid_dt;
-    yaw.deriv = IIR(yaw.deriv, &yaw.temp1, 0.98);
-    yaw.dd = (yaw.deriv - yaw.prev_deriv) / pid_dt;
-    yaw.dd = IIR(yaw.dd, &yaw.temp2, 0.98);
+    yaw.deriv = IIR(yaw.deriv, &yaw.prev_deriv, 0.98);
     yaw.prev_prop = yaw.prop;
-    yaw.prev_deriv = yaw.deriv;
-    yaw.prev_dd = yaw.dd;
 
     err_yaw.prop = yaw_desired - yaw.prop;
     err_yaw.integ += err_yaw.prop * pid_dt;
@@ -491,24 +457,31 @@ void PID_step() {
     float left_motor_pwm = output_t + output_x + output_y;
     float right_motor_pwm = output_t + output_x - output_y;
 
-    bt_dout_buff[0] = theta.prop;
-    bt_dout_buff[1] = x.prop;
-    bt_dout_buff[2] = yaw.prop;
-    bt_dout_buff[3] = err_theta.prop;
-    bt_dout_buff[4] = err_x.prop;
-    bt_dout_buff[5] = err_yaw.prop;
-    bt_dout_buff[6] = x_desired;
-    bt_dout_buff[7] = yaw_desired;
-    bt_dout_buff[8] = lwheel.wheel_angle;
-    bt_dout_buff[9] = rwheel.wheel_angle;
-    // bt_dout_buff[10] = left_motor_pwm;
-    // bt_dout_buff[11] = rwheel.wheel_angle;
-    Serial.print(left_motor_pwm);
-    Serial.print("\t");
+    bt_dout_buff[0] = (float)theta.prop;
+    bt_dout_buff[1] = (float)x.prop;
+    bt_dout_buff[2] = (float)yaw.prop;
+    bt_dout_buff[3] = (float)output_t;
+    bt_dout_buff[4] = (float)output_x;
+    bt_dout_buff[5] = (float)output_y;
+    bt_dout_buff[6] = (float)x_desired;
+    bt_dout_buff[7] = (float)yaw_desired;
+    bt_dout_buff[8] = (float)lwheel.wheel_angle;
+    bt_dout_buff[9] = (float)rwheel.wheel_angle;
+    bt_dout_buff[10] = (float)left_motor_pwm;
+    bt_dout_buff[11] = (float)right_motor_pwm;
+    bt_dout_buff[12] = (float)pid_dt;
+    // Serial.print(left_motor_pwm);
+    // Serial.print("\t");
     
-    Serial.print(right_motor_pwm);
-    Serial.print("\t");
-    Serial.println(" ");
+    // Serial.print(right_motor_pwm);
+    // Serial.print("\t");
+    // Serial.println(" ");
+    if (isnan(left_motor_pwm)) {
+        left_motor_pwm = 0.0;
+    }
+    if (isnan(right_motor_pwm)) {
+        right_motor_pwm = 0.0;
+    }
     driveMotors(left_motor_pwm, right_motor_pwm);  
     
 }
@@ -574,48 +547,87 @@ void bluetooth() {
                 // Serial.print("NAN");
             } 
         }
+        speed_desired = bt_din_buff[1];
+        steering_rate_desired = bt_din_buff[2];
+        Kt.Kp = bt_din_buff[3];
+        Kt.Ki = bt_din_buff[4];
+        Kt.Kd = bt_din_buff[5];
+        Kx.Kp = bt_din_buff[6];
+        Kx.Ki = bt_din_buff[7];
+        Kx.Kd = bt_din_buff[8];
+        Ky.Kp = bt_din_buff[9];
+        Ky.Ki = bt_din_buff[10];
+        Ky.Kd = bt_din_buff[11];
     } else {
+        Serial.print(millis());
+        Serial.print(" ");
         Serial.println("[ERROR]: Not enough bytes recieved for DATA IN");
         control_state = prev_control_state;
-        return;
     }
 
 
     // write
     for (int i = 0; i < NUM_DOUT; i++) {
+        if (isnan(bt_dout_buff[i])) {
+            bt_dout_buff[i] = 0.0;
+        }
         memcpy(doutbuff + i * sizeof(float), &bt_dout_buff[i], sizeof(float));
     }
     dout_com.writeValue(doutbuff, NUM_DOUT*sizeof(float), true);
-    
-    speed_desired = bt_din_buff[1];
-    steering_rate_desired = bt_din_buff[2];
-    Kt.Kp = bt_din_buff[3];
-    Kt.Ki = bt_din_buff[4];
-    Kt.Kd = bt_din_buff[5];
-    Kx.Kp = bt_din_buff[6];
-    Kx.Ki = bt_din_buff[7];
-    Kx.Kd = bt_din_buff[8];
-    Ky.Kp = bt_din_buff[9];
-    Ky.Ki = bt_din_buff[10];
-    Ky.Kd = bt_din_buff[11];
 }
 
 
-void setup() {
-    Serial.begin(SERIAL_BAUDRATE);
-    Serial.println("Serial Started ...");
-    Serial.println("Calibrating Encoders...");
-
-    Wire.begin();                                         // start i2C
-    Wire.setClock(I2C_CLOCK_SPEED);     
+void calibrateAll() {
+    digitalWrite(LEDR, HIGH);         
+    digitalWrite(LEDG, HIGH);        
+    digitalWrite(LEDB, HIGH);
 
     calibrateWheelAngle(&(lwheel.start_angle), &(lwheel.num_turns), &(lwheel.quad_num), 
         &(lwheel.prev_quad_num), ENCODER_L);
     calibrateWheelAngle(&(rwheel.start_angle), &(rwheel.num_turns), &(rwheel.quad_num), 
         &(rwheel.prev_quad_num), ENCODER_R); 
-            
+
+    delay(250); digitalWrite(LEDR, LOW); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
+
     initIMU();
+    delay(250); digitalWrite(LEDR, HIGH); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
+
     calibrateIMU();
+    digitalWrite(LEDR, LOW); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
+
+    pid_curr_time = micros();
+    pid_prev_time = pid_curr_time;
+    angle_curr_time = micros();
+    angle_prev_time = angle_curr_time; 
+    initFIR(fir_coeffs, BETA_FIR, N_FIR);
+    for (int i = 0; i < N_FIR; i++) ax_vec[i] = 0.0;
+    for (int i = 0; i < N_FIR; i++) az_vec[i] = 0.0;
+    for (int i = 0; i < N_FIR; i++) gx_vec[i] = 0.0;
+    for (int i = 0; i < N_FIR; i++) gz_vec[i] = 0.0;
+    for (int i = 0; i < N_FIR; i++) l_encoder_vec[i] = 0.0;
+    for (int i = 0; i < N_FIR; i++) r_encoder_vec[i] = 0.0;
+
+    for (int i = 0; i < NUM_DIN; i++) bt_din_buff[i] = 0.0;
+}   
+
+void setup() {
+    pinMode(LEDR, OUTPUT);
+    pinMode(LEDG, OUTPUT);
+    pinMode(LEDB, OUTPUT);       
+    digitalWrite(LEDR, LOW);         
+    digitalWrite(LEDG, HIGH);        
+    digitalWrite(LEDB, HIGH);
+
+    Serial.begin(SERIAL_BAUDRATE);
+    Serial.println("Serial Started ...");
+    Serial.println("Calibrating Encoders...");
+
+    Wire.begin();                                         // start i2C
+    Wire.setClock(I2C_CLOCK_SPEED);    
+    
+    delay(250);
+
+    // calibrateAll();
 
     if (!BLE.begin()) { 
         Serial.println("Starting Bluetooth Low Energy Module Failed.");
@@ -626,16 +638,6 @@ void setup() {
     pinMode(Motor_R_f, OUTPUT);
     pinMode(Motor_R_r, OUTPUT);  
 
-    pinMode(LEDR, OUTPUT);
-    pinMode(LEDG, OUTPUT);
-    pinMode(LEDB, OUTPUT);
-    pinMode(LED_BUILTIN, OUTPUT);
-
-    digitalWrite(LED_BUILTIN, HIGH);        
-    digitalWrite(LEDR, LOW);         
-    digitalWrite(LEDG, HIGH);        
-    digitalWrite(LEDB, HIGH);
-
     BLE.setLocalName("ROBOT_C4");
     BLE.setAdvertisedService(nanoService);
     nanoService.addCharacteristic(dout_com);
@@ -643,19 +645,6 @@ void setup() {
     BLE.addService(nanoService);
     BLE.advertise();
     Serial.println("BLE advertising...");
-    pid_curr_time = millis();
-    pid_prev_time = pid_curr_time;
-
-    angle_curr_time = millis();
-    angle_prev_time = angle_curr_time; 
-
-    initFIR(fir_coeffs, BETA_FIR, N_FIR);
-    for (int i = 0; i < N_FIR; i++) ax_vec[i] = 0.0;
-    for (int i = 0; i < N_FIR; i++) az_vec[i] = 0.0;
-    for (int i = 0; i < N_FIR; i++) gx_vec[i] = 0.0;
-    for (int i = 0; i < N_FIR; i++) gz_vec[i] = 0.0;
-    for (int i = 0; i < N_FIR; i++) l_encoder_vec[i] = 0.0;
-    for (int i = 0; i < N_FIR; i++) r_encoder_vec[i] = 0.0;
 }
 
 void loop() {
@@ -663,6 +652,7 @@ void loop() {
     if (central) {
         Serial.print("Connected to central: ");
         Serial.println(central.address());
+        calibrateAll();
         while (central.connected()) {  
             PID_step();
             bluetooth();
