@@ -110,7 +110,7 @@ class DashboardView(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("C4 Dashboard")
-        self.geometry("1380x720")
+        self.geometry("1380x820")
         self.pressed_keys = set()
 
         self.tabview = ctk.CTkTabview(self, width=1200, height=720)
@@ -304,6 +304,7 @@ class DashboardView(ctk.CTk):
             else:
                 self.toggle_motors.configure(text="Toggle Motor OFF", state="enabled")
         else:
+            model.control_state = 0 
             self.toggle_motors.configure(text="Toggle Motor ON", state="disabled")
 
     def get_param_values(self):
@@ -429,12 +430,6 @@ class Dashboard:
             self.model.bluetooth_connected = False
 
     def send_bluetooth(self):
-        
-        # now = time.time()
-        # if now - self.last_bt_send < 0.001:
-        #     return
-        # self.last_bt_send = now
-
         if self.bt_to_queue is not None:
             cmd = {
                 "speed": self.model.speed,
@@ -446,18 +441,22 @@ class Dashboard:
     
     def poll_bluetooth(self):
         if self.bt_from_queue is not None:
-            latest_telemetry = None
             while True:
                 try:
-                    telemetry = self.bt_from_queue.get_nowait()
-                    latest_telemetry = telemetry 
+                    message = self.bt_from_queue.get_nowait()
+                    if isinstance(message, dict) and "status" in message:
+                        if message["status"] == "connected":
+                            self.model.bluetooth_connected = True
+                        elif message["status"] == "disconnected":
+                            self.model.bluetooth_connected = False
+                            self.model.control_state = 0
+                            self.view.update_display(self.model)
+                    else:
+                        self.model.telemetry = message
                 except queue.Empty:
                     break
-
-            if latest_telemetry is not None:
-                self.model.telemetry = latest_telemetry
-        if self.model.bluetooth_connected:
-            self.view.after(10, self.poll_bluetooth) # 10 ms polling interval
+        # 10 ms 
+        self.view.after(10, self.poll_bluetooth)
 
     def on_close(self):
         self.model.bluetooth_connected = False

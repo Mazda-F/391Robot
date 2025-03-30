@@ -26,95 +26,83 @@ class Bluetooth:
         self.params = [0.0] * NUM_PARAMS
 
     async def run(self):
-        device = await BleakScanner.find_device_by_name(self.device_name)
-        if not device:
-            print(f"[ERROR] Bluetooth: Device not found")
-            return
-        async with BleakClient(device) as client:
-            print(f"[INFO] Bluetooth: Successfully connected to {device}")
+        while self._running:
+            device = await BleakScanner.find_device_by_name(self.device_name)
+            if not device:
+                print(f"[ERROR] Bluetooth: Device not found")
+                self.from_queue.put({"status": "disconnected"})
+                await asyncio.sleep(1)
+                continue
             
-            while self._running:
-                # read from arduino and write to gui
-                try:
-                    din_bytes = await client.read_gatt_char(self.uuid["din"])
-                    # din_bytes = await asyncio.wait_for(client.read_gatt_char(self.uuid["din"]), timeout=0.5)
-                    din_data = struct.unpack_from('<' + 'f' * NUM_DIN, din_bytes)
-                except Exception as e:
-                    print("[ERROR] Bluetooth: Error recieving values from arduino:", e)
-                    din_data = [0.0]*NUM_DIN
-                    
-                if len(din_data) == NUM_DIN:
-                    try:
-                        self.from_queue.put(list(din_data)) # from bluetooth to gui
-                        # self.dashboard.telemetry = list(din_data)[:NUM_DIN].copy()
-                    except Exception as e:
-                        print("[ERROR] Bluetooth: Error writing values to dashboard:", e)
-                        continue
-                
-                # read from gui and write to arduino
-                latest_cmd = None
-                # Drain the entire queue
-                while True:
-                    try:
-                        cmd = self.to_queue.get_nowait()
-                        latest_cmd = cmd  # Always update to the most recent command
-                    except queue.Empty:
-                        break
+            try:
+                async with BleakClient(device) as client:
+                    print(f"[INFO] Bluetooth: Successfully connected to {device}")
+                    self.from_queue.put({"status": "connected"})
+                    while self._running:
+                        # read from arduino and write to gui
+                        try:
+                            din_bytes = await client.read_gatt_char(self.uuid["din"])
+                            din_data = struct.unpack_from('<' + 'f' * NUM_DIN, din_bytes)
+                        except Exception as e:
+                            print("[WARNING] Bluetooth: Failed recieving values from arduino:", e)
+                            din_data = [0.0]*NUM_DIN
+                            
+                        if len(din_data) == NUM_DIN:
+                            try:
+                                self.from_queue.put(list(din_data)) # from bluetooth to gui
+                            except Exception as e:
+                                print("[WARNING] Bluetooth: Failed writing values to dashboard:", e)
+                                continue
+                        
+                        # read from gui and write to arduino
+                        latest_cmd = None
+                        # drain the queue
+                        while True:
+                            try:
+                                cmd = self.to_queue.get_nowait()
+                                latest_cmd = cmd  # Always updates to the lateste cmd
+                            except queue.Empty:
+                                break
 
-                if latest_cmd:
-                    if latest_cmd.get("command") == "stop":
-                        self._running = False
-                        print("Stopped")
-                    else:
-                        self.speed = latest_cmd.get("speed", self.speed)
-                        self.yaw = latest_cmd.get("yaw", self.yaw)
-                        self.control_state = latest_cmd.get("control_state", self.control_state)
-                        self.params = latest_cmd.get("params", self.params)
+                        if latest_cmd:
+                            if latest_cmd.get("command") == "stop":
+                                self._running = False
+                                print("Stopped")
+                            else:
+                                self.speed = latest_cmd.get("speed", self.speed)
+                                self.yaw = latest_cmd.get("yaw", self.yaw)
+                                self.control_state = latest_cmd.get("control_state", self.control_state)
+                                self.params = latest_cmd.get("params", self.params)
 
+                        if not self._running:
+                            break
+                        
+                        # writing
+                        try:
+                            param_bytes = struct.pack('<' + 'f' * NUM_PARAMS, *self.params)
+                            movement = [self.speed, self.yaw]
+                            movement_bytes = struct.pack('<' + 'f' * 2, *movement)
+                            ctrl_bytes = struct.pack('<' + 'i', self.control_state)
+                            dout_bytes = ctrl_bytes + movement_bytes + param_bytes
+                            await client.write_gatt_char(self.uuid["dout"], dout_bytes, response=True)  
+                        except Exception as e:
+                            print("[WARNING] Bluetooth: Error writing values to arduino:", e)
+                            self.from_queue.put({"status": "disconnected"})
+                            break
 
-
-
-                # try:
-                #     while True:
-                #         cmd = self.to_queue.get_nowait()
-                #         if cmd.get("command") == "stop":
-                #             self._running = False
-                #             print("Stopped")
-                #             break
-                #         if "speed" in cmd:
-                #             self.speed = cmd["speed"]
-                #         if "yaw" in cmd:
-                #             self.yaw = cmd["yaw"]
-                #         if "control_state" in cmd:
-                #             self.control_state = cmd["control_state"]
-                #         if "params" in cmd:
-                #             self.params = cmd["params"]
-                #         # self.to_queue.task_done()
-                # except queue.Empty as e:
-                #     print("[WARNING] Bluetooth: Queue is empty!", e)
-                #     pass
-
-                if not self._running:
-                    break
-
-                try:
-                    param_bytes = struct.pack('<' + 'f' * NUM_PARAMS, *self.params)
-                    movement = [self.speed, self.yaw]
-                    movement_bytes = struct.pack('<' + 'f' * 2, *movement)
-                    ctrl_bytes = struct.pack('<' + 'i', self.control_state)
-                    dout_bytes = ctrl_bytes + movement_bytes + param_bytes
-                    await client.write_gatt_char(self.uuid["dout"], dout_bytes, response=True)  
-                except Exception as e:
-                    print("[ERROR] Bluetooth: Error writing values to arduino:", e)
-
-                await asyncio.sleep(0.02)
+                        await asyncio.sleep(0.02)
+            except Exception as e:
+                print(f"[ERROR] Bluetooth: Connection Failed: {e}")
+                self.from_queue.put({"status" : "disconnected"})
+            
+            if self._running:
+                print({"[INFO] Bluetooth: Attempting auto-reconnection..."})
+                await asyncio.sleep(1)
 
     def start(self):
         asyncio.set_event_loop(self.loop)
         self.loop.run_until_complete(self.run())
 
-    # def stop(self):
-    #     self._running = False
 
 def main_bluetooth_process(device_name, to_queue, from_queue):
     bt = Bluetooth(device_name, to_queue, from_queue)
