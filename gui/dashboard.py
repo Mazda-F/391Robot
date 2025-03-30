@@ -122,7 +122,7 @@ class DashboardView(ctk.CTk):
         self.dashboard_frame = ctk.CTkFrame(self.dashboard_tab)
         self.dashboard_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.stream_widget = StreamWidget(self.dashboard_frame, width=780, height=400)
+        self.stream_widget = StreamWidget(self.dashboard_frame)
         self.stream_widget.grid(row=0, column=1, padx=(10, 10), pady=(10, 10))
 
         self.controls_frame = ctk.CTkFrame(self.dashboard_frame)

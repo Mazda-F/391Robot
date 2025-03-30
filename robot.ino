@@ -610,6 +610,23 @@ void calibrateAll() {
     for (int i = 0; i < NUM_DIN; i++) bt_din_buff[i] = 0.0;
 }   
 
+void lightshow() {
+    digitalWrite(LEDR, LOW); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
+    delay(100);
+    digitalWrite(LEDR, HIGH); digitalWrite(LEDG, LOW); digitalWrite(LEDB, HIGH);
+    delay(100);
+    digitalWrite(LEDR, HIGH); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, LOW);
+    delay(100);
+    digitalWrite(LEDR, LOW); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
+    delay(100);
+    digitalWrite(LEDR, HIGH); digitalWrite(LEDG, LOW); digitalWrite(LEDB, HIGH);
+    delay(100);
+    digitalWrite(LEDR, HIGH); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, LOW);
+    delay(100);
+    digitalWrite(LEDR, LOW); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
+    delay(100);
+}
+
 void setup() {
     pinMode(LEDR, OUTPUT);
     pinMode(LEDG, OUTPUT);
@@ -625,7 +642,7 @@ void setup() {
     Wire.begin();                                         // start i2C
     Wire.setClock(I2C_CLOCK_SPEED);    
     
-    delay(250);
+    lightshow();
 
     // calibrateAll();
 

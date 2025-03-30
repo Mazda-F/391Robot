@@ -6,6 +6,7 @@ import threading
 from PIL import Image, ImageTk
 import customtkinter as ctk
 import tkinter as tk
+import time
 
 class StreamThread(threading.Thread):
     def __init__(self, frame_callback, error_callback, stream_url="http://192.168.4.1:129/stream"):
@@ -15,6 +16,8 @@ class StreamThread(threading.Thread):
         self.stream_url = stream_url
         self._running = True
         self.daemon = True
+        self.last_frame_time = time.time()
+        self.timeout = 2.0
 
     def run(self):
         try:
@@ -26,10 +29,17 @@ class StreamThread(threading.Thread):
                         break
                     data += chunk
                     a = data.find(b'\xff\xd8')  # JPEG start
-                    b_idx = data.find(b'\xff\xd9')  # JPEG end
-                    if (a != -1 and b_idx != -1 and b_idx > a) or len(data) > 8000:
-                        jpg = data[a:b_idx+2]
-                        data = data[b_idx+2:]
+                    b = data.find(b'\xff\xd9')  # JPEG end
+                    if (a != -1 and b != -1 and b > a) or len(data) > 8000:
+                        jpg = data[a:b+2]
+                        data = data[b+2:] if (b+2) < len(data) else b""
+
+                        if time.time() - self.last_frame_time > self.timeout:
+                            print("Stalled frame detected, resetting buffer")
+                            data = b""
+                            self.last_frame_time = time.time()
+                            continue
+
                         img_array = np.frombuffer(jpg, dtype=np.uint8)
                         if img_array.size == 0:
                             continue
@@ -46,7 +56,7 @@ class StreamThread(threading.Thread):
         self._running = False
 
 class StreamWidget(ctk.CTkFrame):
-    def __init__(self, parent, width=780, height=400):
+    def __init__(self, parent, width=640, height=480):
         super().__init__(parent, width=width, height=height)
         self.width = width
         self.height = height
@@ -73,8 +83,10 @@ class StreamWidget(ctk.CTkFrame):
     def update_image(self, pil_image):
         self.retry_button.configure(state="disabled")
         self.image_label.configure(text="")
-        pil_image = pil_image.resize((self.width, self.height), Image.ANTIALIAS)
+        pil_image = pil_image.resize((self.width, self.height), Image.LANCZOS)
+        # pil_image = pil_image.resize((self.width, self.height))
         self.current_photo = ImageTk.PhotoImage(pil_image)
+        # self.current_photo = ctk.CTkImage(pil_image)
         self.image_label.configure(image=self.current_photo)
 
     def handle_connection_error(self, error_msg):
