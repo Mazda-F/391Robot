@@ -2,7 +2,11 @@
 #include <math.h>
 #include <Wire.h> 
 #include "bmi270.h"
- 
+#include "Servo.h"
+
+Servo servoMotor;
+int servoPin = 9;
+
 #define Motor_R_f D2
 #define Motor_R_r D3
 #define Motor_L_f D4
@@ -653,7 +657,9 @@ void setup() {
     pinMode(Motor_L_f, OUTPUT);
     pinMode(Motor_L_r, OUTPUT);
     pinMode(Motor_R_f, OUTPUT);
-    pinMode(Motor_R_r, OUTPUT);  
+    pinMode(Motor_R_r, OUTPUT); 
+
+    servoMotor.attach(servoPin); 
 
     BLE.setLocalName("ROBOT_C4");
     BLE.setAdvertisedService(nanoService);
@@ -673,6 +679,8 @@ void loop() {
         while (central.connected()) {  
             PID_step();
             bluetooth();
+            
+            servoMotor.write(55 - theta.prop * 180.0/M_PI);
         }
         analogWrite(Motor_L_f, 255);
         analogWrite(Motor_R_f, 255);
