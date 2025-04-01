@@ -222,14 +222,31 @@ class DashboardView(ctk.CTk):
         self.settings_frame = ctk.CTkFrame(self.settings_tab)
         self.settings_frame.pack(fill="both", expand=True, padx=10, pady=10)
         self.param_entries = []
+        self.param_titles = [
+            "θ Kp: ", "θ Ki: ", "θ Kd: ", "θ  N: ",
+            "X Kp: ", "X Ki: ", "X Kd: ", "X  N: ",
+            "δ Kp: ", "δ Ki: ", "δ Kd: ", "δ  N: ",]
+        
+        rownum = 0
         for i in range(NUM_PARAMS):
-            entry = ctk.CTkEntry(self.settings_frame, width=200)
-            entry.grid(row=i, column=0, padx=5, pady=5)
-            self.param_entries.append(entry)
+            if (i+1) % 4 != 0:
+                param_title = ctk.CTkLabel(self.settings_frame, text=self.param_titles[i], width=80, height=5, anchor="w")
+                entry = ctk.CTkEntry(self.settings_frame, width=200)
+                param_title.grid(row=rownum, column=0, padx=10, pady=5)
+                entry.grid(row=rownum, column=1, padx=10, pady=5)
+                self.param_entries.append(entry)
+                rownum += 1
+            else:
+                param_title = ctk.CTkLabel(self.settings_frame, text=self.param_titles[i], width=80, height=5, anchor="w")
+                entry = ctk.CTkEntry(self.settings_frame, width=200)
+                param_title.grid(row=rownum-2, column=2, padx=10, pady=5)
+                entry.grid(row=rownum-2, column=3, padx=10, pady=5)
+                self.param_entries.append(entry)
+                
+
         self.param_button = ctk.CTkButton(self.settings_frame, text="Set Parameters", command=self._param_button_clicked)
         self.param_button.grid(row=NUM_PARAMS, column=0, pady=10)
 
-       
         self.on_arrow_key_pressed = None
         self.on_arrow_key_released = None
         self.on_toggle_motors = None
@@ -421,18 +438,15 @@ class Dashboard:
         self.steering_wheel_thread.start()
 
     def external_input_callback(self, speed, yaw):
-        # Schedule the update in the main thread
         self.view.after(0, self.process_external_input, speed, yaw)
 
     def process_external_input(self, speed, yaw):
-        # If no WASD keys are pressed, use the external input.
         if not self.view.pressed_keys:
             self.model.speed = speed
             self.model.yaw = yaw
             self.send_bluetooth()
 
     def external_error_callback(self, message):
-        # Log the error or notify the user without disrupting the experience.
         print("[INFO] External device error:", message)
 
     def toggle_bluetooth(self):

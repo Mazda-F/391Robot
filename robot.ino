@@ -79,7 +79,7 @@ float Kc = 0.0;
 float pid_dt = 0;
 unsigned long pid_prev_time = 0;
 unsigned long pid_curr_time = 0;
-struct K { float Kp = 0.0; float Ki = 0.0; float Kd = 0.0; };
+struct K { float Kp = 0.0; float Ki = 0.0; float Kd = 0.0; float beta = 0.99};
 struct timevar { float integ = 0.0; float prop = 0.0; float deriv = 0.0; float dd = 0.0;  
     float prev_prop = 0.0; float prev_deriv = 0.0; float prev_dd = 0.0; float temp1 = 0.0; float temp2 = 0.0; float temp3 = 0.0;
 };
@@ -125,7 +125,7 @@ float r_encoder_vec[N_FIR];
 // TimerDecorator imutimer("IMU_TIMER");
 
 // Bluetooth
-#define NUM_DIN 12
+#define NUM_DIN 15
 #define NUM_DOUT 13
 #define COMMAND_HOLD_MILLIS 10
 int control_state = 0;
@@ -424,7 +424,7 @@ void PID_step() {
     err_x.prop = x_desired - x.prop;
     err_x.integ += err_x.prop * pid_dt;
     err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
-    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.99968);
+    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, Kx.beta);
     err_x.prev_prop = err_x.prop;
     
     float x_pid_out = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
@@ -442,7 +442,7 @@ void PID_step() {
     err_theta.prop = x_pid_out - theta.prop;
     err_theta.integ += err_theta.prop * pid_dt;
     err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / pid_dt;
-    err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.9817); 
+    err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, Kt.beta); 
     err_theta.prev_prop = err_theta.prop;
     
     float theta_pid_out = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
@@ -457,7 +457,7 @@ void PID_step() {
     err_yaw.prop = yaw_desired - yaw.prop;
     err_yaw.integ += err_yaw.prop * pid_dt;
     err_yaw.deriv = (err_yaw.prop - err_yaw.prev_prop) / pid_dt;
-    err_yaw.deriv = IIR(err_yaw.deriv, &err_yaw.prev_deriv, 0.9982);
+    err_yaw.deriv = IIR(err_yaw.deriv, &err_yaw.prev_deriv, Ky.beta);
     err_yaw.prev_prop = err_yaw.prop;
 
     float yaw_pid_out = Ky.Kp * err_yaw.prop + Ky.Ki * err_yaw.integ + Ky.Kd * err_yaw.deriv;
@@ -535,6 +535,14 @@ void driveMotors(float left_motor_pwm, float right_motor_pwm) {
     }
 }
 
+float n_to_beta(float n) {
+    float beta = (n+0.2)/(n+1.12); // from the teachings of prof. leo stocco
+    if (beta >= 1.0) {
+        beta = 0.99;
+    }
+    return beta;
+}
+
 void bluetooth() {
     // read
     int intval;
@@ -560,12 +568,15 @@ void bluetooth() {
         Kt.Kp = bt_din_buff[3];
         Kt.Ki = bt_din_buff[4];
         Kt.Kd = bt_din_buff[5];
-        Kx.Kp = bt_din_buff[6];
-        Kx.Ki = bt_din_buff[7];
-        Kx.Kd = bt_din_buff[8];
-        Ky.Kp = bt_din_buff[9];
-        Ky.Ki = bt_din_buff[10];
-        Ky.Kd = bt_din_buff[11];
+        Kt.beta = n_to_beta(bt_din_buff[6]); // iir beta on derivative path
+        Kx.Kp = bt_din_buff[7];
+        Kx.Ki = bt_din_buff[8];
+        Kx.Kd = bt_din_buff[9];
+        Kx.beta = n_to_beta(bt_din_buff[10]);
+        Ky.Kp = bt_din_buff[11];
+        Ky.Ki = bt_din_buff[12];
+        Ky.Kd = bt_din_buff[13];
+        Ky.beta = n_to_beta(bt_din_buff[14]);
     } else {
         Serial.print(millis());
         Serial.print(" ");
