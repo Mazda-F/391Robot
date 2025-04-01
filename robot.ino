@@ -372,21 +372,6 @@ void PID_step() {
         yaw_desired = 0.0;
     }
 
-    /*** THETA ***/
-    // theta.prop = getAngle() * 180/M_PI;
-    theta.prop = getAngle();
-    if (isnan(theta.prop)) {
-        theta.prop = theta.prev_prop;
-    } else {
-        theta.prev_prop = theta.prop;
-    }
-
-    err_theta.prop = 0.0 - theta.prop;
-    err_theta.integ += err_theta.prop * pid_dt;
-    err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / pid_dt;
-    err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.7260); 
-    err_theta.prev_prop = err_theta.prop;
-    
     /*** X ***/
     if (control_state == 1 && prev_control_state == 0) {
         calibrateWheelAngle(&(lwheel.start_angle), &(lwheel.num_turns), &(lwheel.quad_num), 
@@ -435,8 +420,29 @@ void PID_step() {
     err_x.prop = x_desired - x.prop;
     err_x.integ += err_x.prop * pid_dt;
     err_x.deriv = (err_x.prop - err_x.prev_prop) / pid_dt;
-    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.3077);
+    err_x.deriv = IIR(err_x.deriv, &err_x.prev_deriv, 0.99968);
     err_x.prev_prop = err_x.prop;
+    
+    float x_pid_out = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
+
+
+    /*** THETA ***/
+    // theta.prop = getAngle() * 180/M_PI;
+    theta.prop = getAngle();
+    if (isnan(theta.prop)) {
+        theta.prop = theta.prev_prop;
+    } else {
+        theta.prev_prop = theta.prop;
+    }
+
+    err_theta.prop = x_pid_out - theta.prop;
+    err_theta.integ += err_theta.prop * pid_dt;
+    err_theta.deriv = (err_theta.prop - err_theta.prev_prop) / pid_dt;
+    err_theta.deriv = IIR(err_theta.deriv, &err_theta.prev_deriv, 0.9817); 
+    err_theta.prev_prop = err_theta.prop;
+    
+    float theta_pid_out = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
+
 
     /*** YAW ***/
     yaw.prop = ((lwheel.x -  rwheel.x) / WHEEL_DISTANCE);
@@ -447,22 +453,20 @@ void PID_step() {
     err_yaw.prop = yaw_desired - yaw.prop;
     err_yaw.integ += err_yaw.prop * pid_dt;
     err_yaw.deriv = (err_yaw.prop - err_yaw.prev_prop) / pid_dt;
-    err_yaw.deriv = IIR(err_yaw.deriv, &err_yaw.prev_deriv, 0.3077);
+    err_yaw.deriv = IIR(err_yaw.deriv, &err_yaw.prev_deriv, 0.9982);
     err_yaw.prev_prop = err_yaw.prop;
 
-    float output_t = Kt.Kp * err_theta.prop + Kt.Ki * err_theta.integ + Kt.Kd * err_theta.deriv;
-    float output_x = Kx.Kp * err_x.prop + Kx.Ki * err_x.integ + Kx.Kd * err_x.deriv;
-    float output_y = Ky.Kp * err_yaw.prop + Ky.Ki * err_yaw.integ + Ky.Kd * err_yaw.deriv;
+    float yaw_pid_out = Ky.Kp * err_yaw.prop + Ky.Ki * err_yaw.integ + Ky.Kd * err_yaw.deriv;
 
-    float left_motor_pwm = output_t + output_x - output_y;
-    float right_motor_pwm = output_t + output_x + output_y;
+    float left_motor_pwm = theta_pid_out - yaw_pid_out;
+    float right_motor_pwm = theta_pid_out + yaw_pid_out;
 
     bt_dout_buff[0] = (float)theta.prop;
     bt_dout_buff[1] = (float)x.prop;
     bt_dout_buff[2] = (float)yaw.prop;
-    bt_dout_buff[3] = (float)output_t;
-    bt_dout_buff[4] = (float)output_x;
-    bt_dout_buff[5] = (float)output_y;
+    bt_dout_buff[3] = (float)theta_pid_out;
+    bt_dout_buff[4] = (float)x_pid_out;
+    bt_dout_buff[5] = (float)yaw_pid_out;
     bt_dout_buff[6] = (float)x_desired;
     bt_dout_buff[7] = (float)yaw_desired;
     bt_dout_buff[8] = (float)lwheel.wheel_angle;

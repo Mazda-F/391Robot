@@ -212,10 +212,10 @@ class DashboardView(ctk.CTk):
 
         # Buttons Panel
         self.toggle_motors = ctk.CTkButton(self.buttons_frame, text="Toggle Motor ON", command=self._toggle_motors_clicked)
-        self.toggle_motors.grid(row=5, column=1, padx=5, pady=5)
+        self.toggle_motors.grid(row=1, column=1, padx=5, pady=20)
 
         self.bt_button = ctk.CTkButton(self.buttons_frame, text="Connect Bluetooth", command=self._bt_button_clicked)
-        self.bt_button.grid(row=6, column=1, padx=5, pady=5)
+        self.bt_button.grid(row=7, column=1, padx=5, pady=20)
 
         # SETTINGS TAB
         self.settings_tab = self.tabview.tab("Settings")
@@ -240,6 +240,13 @@ class DashboardView(ctk.CTk):
         self.bind("<KeyPress>", self.key_press_event)
         self.bind("<KeyRelease>", self.key_release_event)
         self.focus_set()
+   
+        def clear_focus(event):
+            if event.widget.__class__.__name__ in ["CTkEntry", "Entry"]:
+                return
+            self.focus_set()
+
+        self.bind_all("<Button-1>", clear_focus)
 
     def _toggle_motors_clicked(self):
         if self.on_toggle_motors:
@@ -405,6 +412,28 @@ class Dashboard:
         self.bt_from_queue = None
         self.view.toggle_motors.configure(state="disabled")
         self.view.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        from steering import SteeringThread
+        self.steering_wheel_thread = SteeringThread(
+            input_callback=self.external_input_callback,
+            error_callback=self.external_error_callback
+        )
+        self.steering_wheel_thread.start()
+
+    def external_input_callback(self, speed, yaw):
+        # Schedule the update in the main thread
+        self.view.after(0, self.process_external_input, speed, yaw)
+
+    def process_external_input(self, speed, yaw):
+        # If no WASD keys are pressed, use the external input.
+        if not self.view.pressed_keys:
+            self.model.speed = speed
+            self.model.yaw = yaw
+            self.send_bluetooth()
+
+    def external_error_callback(self, message):
+        # Log the error or notify the user without disrupting the experience.
+        print("[INFO] External device error:", message)
 
     def toggle_bluetooth(self):
         if self.bluetooth_proc is None:
@@ -464,7 +493,9 @@ class Dashboard:
             self.bt_to_queue.put({"command": "stop"})
             self.bluetooth_proc.join()
             self.bluetooth_proc = None
+        self.steering_wheel_thread.stop()
         self.view.destroy()
+
 
     @property
     def speed(self):
