@@ -79,7 +79,7 @@ float Kc = 0.0;
 float pid_dt = 0;
 unsigned long pid_prev_time = 0;
 unsigned long pid_curr_time = 0;
-struct K { float Kp = 0.0; float Ki = 0.0; float Kd = 0.0; float beta = 0.99};
+struct K { float Kp = 0.0; float Ki = 0.0; float Kd = 0.0; float beta = 0.99;};
 struct timevar { float integ = 0.0; float prop = 0.0; float deriv = 0.0; float dd = 0.0;  
     float prev_prop = 0.0; float prev_deriv = 0.0; float prev_dd = 0.0; float temp1 = 0.0; float temp2 = 0.0; float temp3 = 0.0;
 };
@@ -113,14 +113,16 @@ char strbuf[200];
 char strbuf2[100];
 
 #define N_FIR 250
+#define N_FIR_WHEEL 10
 #define BETA_FIR 0.993
 float fir_coeffs[N_FIR];
 float ax_vec[N_FIR];
 float az_vec[N_FIR];
 float gx_vec[N_FIR];
 float gz_vec[N_FIR];
-float l_encoder_vec[N_FIR]; 
-float r_encoder_vec[N_FIR]; 
+float wheel_fir_coeffs[N_FIR_WHEEL];
+float l_encoder_vec[N_FIR_WHEEL]; 
+float r_encoder_vec[N_FIR_WHEEL]; 
 
 // TimerDecorator imutimer("IMU_TIMER");
 
@@ -394,8 +396,8 @@ void PID_step() {
             &(rwheel.prev_quad_num), rwheel.start_angle, ENCODER_R, true);
         lwheel.wheel_angle = lwheel.total_angle * M_PI/180.0;
         rwheel.wheel_angle = rwheel.total_angle * M_PI/180.0;
-        lwheel.wheel_angle = FIR(lwheel.wheel_angle, l_encoder_vec, fir_coeffs, N_FIR);
-        rwheel.wheel_angle = FIR(rwheel.wheel_angle, r_encoder_vec, fir_coeffs, N_FIR);
+        lwheel.wheel_angle = FIR(lwheel.wheel_angle, l_encoder_vec, wheel_fir_coeffs, N_FIR_WHEEL);
+        rwheel.wheel_angle = FIR(rwheel.wheel_angle, r_encoder_vec, wheel_fir_coeffs, N_FIR_WHEEL);
         lwheel.x = lwheel.wheel_angle * WHEEL_RADIUS;
         rwheel.x = rwheel.wheel_angle * WHEEL_RADIUS;
     
@@ -619,12 +621,13 @@ void calibrateAll() {
     angle_curr_time = micros();
     angle_prev_time = angle_curr_time; 
     initFIR(fir_coeffs, BETA_FIR, N_FIR);
+    initFIR(wheel_fir_coeffs, n_to_beta(N_FIR_WHEEL), N_FIR_WHEEL);
     for (int i = 0; i < N_FIR; i++) ax_vec[i] = 0.0;
     for (int i = 0; i < N_FIR; i++) az_vec[i] = 0.0;
     for (int i = 0; i < N_FIR; i++) gx_vec[i] = 0.0;
     for (int i = 0; i < N_FIR; i++) gz_vec[i] = 0.0;
-    for (int i = 0; i < N_FIR; i++) l_encoder_vec[i] = 0.0;
-    for (int i = 0; i < N_FIR; i++) r_encoder_vec[i] = 0.0;
+    for (int i = 0; i < N_FIR_WHEEL; i++) l_encoder_vec[i] = 0.0;
+    for (int i = 0; i < N_FIR_WHEEL; i++) r_encoder_vec[i] = 0.0;
 
     for (int i = 0; i < NUM_DIN; i++) bt_din_buff[i] = 0.0;
 }   
