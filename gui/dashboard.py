@@ -8,6 +8,7 @@ from bluetooth import main_bluetooth_process
 import queue
 import numpy as np
 import time
+from config import *
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -18,6 +19,9 @@ class DashboardModel:
         self._speed = 0
         self._yaw = 0
         self._pitch = 0
+        self._gear = 1
+        self._energy = 0.0
+        self._rpm = 0.0
         self._telemetry = [0.0] * NUM_DIN
         self._params = [0.0] * NUM_PARAMS
         self._observers = []
@@ -60,9 +64,35 @@ class DashboardModel:
             self.notify_state_changed()
 
     @property
+    def gear(self):
+        return self._gear
+    @gear.setter
+    def gear(self, value):
+        if self._gear != value:
+            self._gear = value
+            self.notify_state_changed()
+
+    @property
+    def energy(self):
+        return self._gear
+    @energy.setter
+    def energy(self, value):
+        if self._energy != value:
+            self._energy = value
+            self.notify_state_changed()
+
+    @property
+    def rpm(self):
+        return self._rpm
+    @rpm.setter
+    def rpm(self, value):
+        if self._rpm != value:
+            self._rpm = value
+            self.notify_state_changed()
+
+    @property
     def yaw(self):
         return self._yaw
-
     @yaw.setter
     def yaw(self, value):
         if self._yaw != value:
@@ -112,6 +142,7 @@ class DashboardView(ctk.CTk):
         self.title("C4 Dashboard")
         self.geometry("1380x820")
         self.pressed_keys = set()
+        self.pressed_shift = set()
 
         self.tabview = ctk.CTkTabview(self, width=1200, height=720)
         self.tabview.pack(fill="both", expand=True)
@@ -140,14 +171,16 @@ class DashboardView(ctk.CTk):
         self.label_left = ctk.CTkLabel(self.controls_frame, text="A", width=80, height=80, anchor="center")
         self.label_right = ctk.CTkLabel(self.controls_frame, text="D", width=80, height=80, anchor="center")
         self.label_up.grid(row=0, column=1, padx=5, pady=5)
-        self.label_left.grid(row=1, column=0, padx=5, pady=5)
-        self.label_down.grid(row=1, column=1, padx=5, pady=5)
-        self.label_right.grid(row=1, column=2, padx=5, pady=5)
+        self.label_left.grid(row=2, column=0, padx=5, pady=5)
+        self.label_down.grid(row=2, column=1, padx=5, pady=5)
+        self.label_right.grid(row=2, column=2, padx=5, pady=5)
         
         self.label_speed = ctk.CTkLabel(self.controls_frame, text="Sent Speed: 0 m/s")
         self.label_yaw = ctk.CTkLabel(self.controls_frame, text="Sent Yaw Angle: 0 deg")
-        self.label_speed.grid(row=1, column=4, columnspan=4, padx=35, pady=5)
-        self.label_yaw.grid(row=2, column=4, columnspan=4, padx=35, pady=5)
+        self.label_gear = ctk.CTkLabel(self.controls_frame, text="Gear: 1")
+        self.label_speed.grid(row=0, column=4, columnspan=4, padx=35, pady=5)
+        self.label_yaw.grid(row=1, column=4, columnspan=4, padx=35, pady=5)
+        self.label_gear.grid(row=2, column=4, columnspan=4, padx=35, pady=5)
 
         # Telemetrics Panel
         self.label_pitch = ctk.CTkLabel(self.telemetrics_frame, text="θ:")
@@ -249,6 +282,8 @@ class DashboardView(ctk.CTk):
 
         self.on_arrow_key_pressed = None
         self.on_arrow_key_released = None
+        self.on_shift_key_pressed = None
+        self.on_shift_key_released = None
         self.on_toggle_motors = None
         self.on_params_changed = None
         self.on_bluetooth_toggle_clicked = None
@@ -286,6 +321,12 @@ class DashboardView(ctk.CTk):
                     self.on_arrow_key_pressed(key)
             self.update_arrow_display()
 
+        if key in ["j", "k"]:
+            if key not in self.pressed_shift:
+                self.pressed_shift.add(key)
+                if self.on_shift_key_pressed:
+                    self.on_shift_key_pressed(key)            
+
     def key_release_event(self, event):
         key = event.keysym.lower()
         if key in ["w", "a", "s", "d"]:
@@ -294,6 +335,12 @@ class DashboardView(ctk.CTk):
                 if self.on_arrow_key_released:
                     self.on_arrow_key_released(key)
             self.update_arrow_display()
+        
+        if key in ["j", "k"]:
+            if key in self.pressed_shift:
+                self.pressed_shift.remove(key)
+                if self.on_shift_key_released:
+                    self.on_shift_key_released(key)
 
     def update_arrow_display(self):
         pressed_style = {"fg_color": "black", "text_color": "white"}
@@ -306,6 +353,7 @@ class DashboardView(ctk.CTk):
     def update_display(self, model: DashboardModel):
         self.label_speed.configure(text=f"Sent Speed: {model.speed} m/s")
         self.label_yaw.configure(text=f"Sent Yaw: {(model.yaw*180.0/math.pi):.1f} deg")
+        self.label_gear.configure(text=f"Gear: {model.gear}")
 
         self.value_pitch.configure(text=f"{model.telemetry[0]:.4f}")
         self.value_x.configure(text=f"{model.telemetry[1]:.4f}")
@@ -354,10 +402,13 @@ class DashboardController:
         self.view : DashboardView = view
         self.dashboard = dashboard
         self.pressed_keys = set()
+        self.pressed_shift = set()
 
         # view call backs
         self.view.on_arrow_key_pressed = self.on_arrow_key_pressed
         self.view.on_arrow_key_released = self.on_arrow_key_released
+        self.view.on_shift_key_pressed = self.on_shift_key_pressed
+        self.view.on_shift_key_released = self.on_shift_key_released
         self.view.on_toggle_motors = self.on_toggle_motors
         self.view.on_params_changed = self.on_set_param_clicked
         self.view.on_bluetooth_toggle_clicked = self.on_bluetooth_toggle_clicked
@@ -375,17 +426,46 @@ class DashboardController:
             self.pressed_keys.remove(direction)
         self.process_input()
 
+    def on_shift_key_pressed(self, key: str):
+        self.pressed_shift.add(key)
+        self.process_shift()
+        self.update_view()
+    
+    def on_shift_key_released(self, key: str):
+        if key in self.pressed_shift:
+            self.pressed_shift.remove(key)
+        self.process_shift()
+        self.update_view()
+
     def process_input(self):
         f = 1 if "w" in self.pressed_keys else 0
         b = 1 if "s" in self.pressed_keys else 0
         l = 1 if "a" in self.pressed_keys else 0
         r = 1 if "d" in self.pressed_keys else 0
-        speed = (f - b) * 0.6
-        yaw = math.atan2(r - l, 1)
+        gear = self.model.gear
+        speed_scalar = gear / 10.0 + 0.15
+        yaw_scalar = max(4.0/gear , 1) 
+        speed = (f - b) * speed_scalar
+        yaw = math.atan2(r - l, 1) * yaw_scalar
         self.model.speed = speed
         self.model.yaw = yaw
         self.dashboard.send_bluetooth()
+    
+    def process_shift(self):
+        shift_up = 1 if "k" in self.pressed_shift else 0
+        shift_down = 1 if "j" in self.pressed_shift else 0
 
+        if shift_up:
+            if self.model.gear < MAXGEAR:
+                self.model.gear += 1
+                self.model.energy *= 0.7
+
+        if shift_down:
+            if self.model.gear > 1:
+                self.model.gear -= 1
+                self.model.energy *= 1.2
+           
+        
     def on_toggle_motors(self):
         self.model.control_state = 1 if self.model.control_state == 0 else 0
         self.dashboard.send_bluetooth()
@@ -429,6 +509,15 @@ class Dashboard:
         self.bt_from_queue = None
         self.view.toggle_motors.configure(state="disabled")
         self.view.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.curr_time = time.time()
+        self.prev_time = self.curr_time
+        self.shift_up_last_pressed = time.time()
+        self.shift_down_last_pressed = time.time()
+        self.gas_last_pressed = time.time()
+        self.shift_up_depressed = False
+        self.shift_down_depressed = False
+        self.gas_depressed = False
         
         from steering import SteeringThread
         self.steering_wheel_thread = SteeringThread(
@@ -437,13 +526,28 @@ class Dashboard:
         )
         self.steering_wheel_thread.start()
 
-    def external_input_callback(self, speed, yaw):
-        self.view.after(0, self.process_external_input, speed, yaw)
+    def external_input_callback(self, speed, yaw, shift_up, shift_down):
+        self.view.after(0, self.process_external_input, speed, yaw, shift_up, shift_down)
 
-    def process_external_input(self, speed, yaw):
+    def process_external_input(self, speed, yaw, shift_up, shift_down):
         if not self.view.pressed_keys:
             self.model.speed = speed
             self.model.yaw = yaw
+
+            if shift_up:
+                if (time.time() - self.shift_up_last_pressed) > 0.2:
+                    if self.model.gear < MAXGEAR:
+                        self.model.gear += 1
+                        self.model.energy *= 0.7
+                    self.shift_up_last_pressed = time.time()
+
+            if shift_down:
+                if (time.time() - self.shift_down_last_pressed) > 0.2:
+                    if self.model.gear > 1:
+                        self.model.gear -= 1
+                        self.model.energy *= 1.2
+                    self.shift_down_last_pressed = time.time()
+
             self.send_bluetooth()
 
     def external_error_callback(self, message):

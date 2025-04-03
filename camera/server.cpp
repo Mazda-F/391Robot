@@ -5,6 +5,22 @@
 #include "img_converters.h"
 #include "camera_index.h"
 #include "Arduino.h"
+#include "lwip/sockets.h"       
+#include <sys/param.h>
+#include "driver/i2s.h"
+#include <stdlib.h>
+#include <string.h>
+
+
+#define I2S_BCK_PIN   13     // bit clk 
+#define I2S_WS_PIN    12     // LRCK
+#define I2S_DATA_PIN  15     
+#define SAMPLE_RATE   44100  // 44.1 kHz
+// #define I2S_NUM       I2S_NUM_0
+#define I2S_NUM       I2S_NUM_1
+#define AUDIO_BUFFER_SIZE 1024 
+
+volatile float volume = 0.2;
 
 const int lresolution = 8;
 
@@ -35,6 +51,73 @@ static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 static ra_filter_t ra_filter;
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
+
+void initAudio() {
+    i2s_config_t i2s_config = {
+      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+      .sample_rate = SAMPLE_RATE,
+      .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+      .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT, // stereo
+      .communication_format = I2S_COMM_FORMAT_I2S,
+      .intr_alloc_flags = 0,
+      .dma_buf_count = 8,
+      .dma_buf_len = 64,
+      .use_apll = false,
+      .tx_desc_auto_clear = true
+    };
+
+    i2s_pin_config_t pin_config = {
+      .bck_io_num = I2S_BCK_PIN,
+      .ws_io_num = I2S_WS_PIN,
+      .data_out_num = I2S_DATA_PIN,
+      .data_in_num = I2S_PIN_NO_CHANGE   // not used for tx
+    };
+
+    i2s_driver_install(I2S_NUM, &i2s_config, 0, NULL);
+    i2s_set_pin(I2S_NUM, &pin_config);
+    Serial.println("I2S driver installed");
+}
+
+static esp_err_t volume_handler(httpd_req_t *req) {
+    char* buf;
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+    char vol_str[16];
+
+    if (buf_len > 1) {
+        buf = (char*)malloc(buf_len);
+        if (!buf) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            if (httpd_query_key_value(buf, "vol", vol_str, sizeof(vol_str)) == ESP_OK) {
+                float vol = atof(vol_str);
+                if (vol < 0.0) vol = 0.0;
+                if (vol > 1.0) vol = 1.0;
+                volume = vol;
+                char resp[64];
+                snprintf(resp, sizeof(resp), "Volume set to %f", volume);
+                httpd_resp_send(req, resp, strlen(resp));
+                Serial.printf("Volume updated: %f\n", volume);
+                free(buf);
+                return ESP_OK;
+            }
+        }
+        free(buf);
+        httpd_resp_send(req, "Missing 'vol' parameter", strlen("Missing 'vol' parameter"));
+        return ESP_FAIL;
+    } else {
+        httpd_resp_send(req, "Missing 'vol' parameter", strlen("Missing 'vol' parameter"));
+        return ESP_FAIL;
+    }
+}
+
+static httpd_uri_t volume_uri = {
+    .uri       = "/volume",
+    .method    = HTTP_GET,
+    .handler   = volume_handler,
+    .user_ctx  = NULL
+};
 
 static ra_filter_t * ra_filter_init(ra_filter_t * filter, size_t sample_size){
     memset(filter, 0, sizeof(ra_filter_t));
@@ -325,38 +408,28 @@ page +="</div>";
 }
 
 static esp_err_t go_handler(httpd_req_t *req){
-    //WheelAct(HIGH, LOW, HIGH, LOW);
-    // robot_fwd();
     Serial.println("Go");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 static esp_err_t back_handler(httpd_req_t *req){
-    //WheelAct(LOW, HIGH, LOW, HIGH);
-    // robot_back();
     Serial.println("Back");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t left_handler(httpd_req_t *req){
-    //WheelAct(HIGH, LOW, LOW, HIGH);
-    // robot_left();
     Serial.println("Left");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 static esp_err_t right_handler(httpd_req_t *req){
-    //WheelAct(LOW, HIGH, HIGH, LOW);
-    // robot_right();
     Serial.println("Right");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
 }
 
 static esp_err_t stop_handler(httpd_req_t *req){
-    //WheelAct(LOW, LOW, LOW, LOW);
-    // robot_stop();
     Serial.println("Stop");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, "OK", 2);
@@ -458,7 +531,73 @@ static httpd_uri_t stream_uri = {
     .handler   = stream_handler,
     .user_ctx  = NULL
 };
+
+void audio_server_task(void *pvParameters) {
+    int listen_sock, client_sock;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    char packetBuffer[AUDIO_BUFFER_SIZE];
+
+    // Create a TCP socket for audio reception
+    listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (listen_sock < 0) {
+        Serial.println("Unable to create audio socket");
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    // Bind the audio socket to port 130
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(130);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    if (bind(listen_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        Serial.println("Unable to bind audio socket");
+        close(listen_sock);
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    if (listen(listen_sock, 1) < 0) {
+        Serial.println("Error listening on audio socket");
+        close(listen_sock);
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    Serial.println("Audio server started on port 130");
+
+    while (1) {
+        client_sock = accept(listen_sock, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (client_sock < 0) {
+            Serial.println("Audio server accept failed");
+            continue;
+        }
+        Serial.println("Audio client connected");
+        int len;
+        while ((len = recv(client_sock, packetBuffer, AUDIO_BUFFER_SIZE, 0)) > 0) {
+            // Process incoming audio data (16-bit PCM) by applying volume scaling.
+            int sample_count = len / 2;
+            int16_t* samples = (int16_t*)packetBuffer;
+            for (int i = 0; i < sample_count; i++) {
+                int sample = samples[i];
+                sample = (int)(sample * volume);
+                if (sample > 32767) sample = 32767;
+                if (sample < -32768) sample = -32768;
+                samples[i] = sample;
+            }
+            size_t bytesWritten = 0;
+            i2s_write(I2S_NUM, packetBuffer, len, &bytesWritten, portMAX_DELAY);
+        }
+        Serial.println("Audio client disconnected");
+        close(client_sock);
+    }
+    
+    close(listen_sock);
+    vTaskDelete(NULL);
+}
+
 void startCameraServer() {
+    initAudio();
     // ---------------------------
     // Camera Control Server Setup
     // ---------------------------
@@ -495,4 +634,7 @@ void startCameraServer() {
     } else {
         Serial.println("Error starting stream server!");
     }
+
+    // Starts the audio server that recieves from computer
+    xTaskCreate(audio_server_task, "audio_server", 4096, NULL, 5, NULL);
 }

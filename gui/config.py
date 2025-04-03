@@ -1,2 +1,4 @@
 NUM_PARAMS = 12
 NUM_DIN = 13
+
+MAXGEAR = 8
