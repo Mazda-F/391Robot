@@ -380,8 +380,8 @@ class DashboardController:
         b = 1 if "s" in self.pressed_keys else 0
         l = 1 if "a" in self.pressed_keys else 0
         r = 1 if "d" in self.pressed_keys else 0
-        speed = (f - b) * 0.2
-        yaw = math.atan2(r - l, 1)/2.0
+        speed = (f - b) * 0.6
+        yaw = math.atan2(r - l, 1)
         self.model.speed = speed
         self.model.yaw = yaw
         self.dashboard.send_bluetooth()

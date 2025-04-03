@@ -3,14 +3,23 @@
 #include <Wire.h> 
 #include "bmi270.h"
 #include "Servo.h"
+#include "mbed.h"
 
 Servo servoMotor;
 int servoPin = 9;
 
-#define Motor_R_f D2
-#define Motor_R_r D3
-#define Motor_L_f D4
-#define Motor_L_r D5
+// #define Motor_R_f D2
+// #define Motor_R_r D3
+// #define Motor_L_f D4
+// #define Motor_L_r D5
+
+#define PWM_DEADZONE 2
+mbed::PwmOut Motor_R_f(digitalPinToPinName(D2));
+mbed::PwmOut Motor_R_r(digitalPinToPinName(D3));
+mbed::PwmOut Motor_L_f(digitalPinToPinName(D4));
+mbed::PwmOut Motor_L_r(digitalPinToPinName(D5));
+
+
 #define SENSOR_PERIOD 0.020
 #define SERIAL_BAUDRATE 9600
 #define I2C_CLOCK_SPEED 400000L
@@ -100,7 +109,6 @@ timevar err_yaw;
 timevar pwm;
 wheeldata lwheel;
 wheeldata rwheel;
-#define PWM_DEADZONE 5
 
 // FIR 
 #define FILTER_ORDER 10  
@@ -503,22 +511,37 @@ void driveMotors(float left_motor_pwm, float right_motor_pwm) {
     int leftSpeed = map(abs(left_motor_pwm), 0, 255, PWM_DEADZONE, 255);
     int rightSpeed = map(abs(right_motor_pwm), 0, 255, PWM_DEADZONE, 255);
 
+    float lpwm = leftSpeed/255.0;
+    float rpwm = rightSpeed/255.0;
+
     if (control_state) {
         //// Left motor
         if (left_motor_pwm > 0) {  // Forward
-            analogWrite(Motor_L_f, 255);
-            analogWrite(Motor_L_r, 255-leftSpeed);
+            // analogWrite(Motor_L_f, 255);
+            // analogWrite(Motor_L_r, 255-leftSpeed);
+            Motor_L_f.write(1.0);
+            Motor_L_r.write(1.0-lpwm);
+
+
         } else {                   // Backward
-            analogWrite(Motor_L_f, 255-leftSpeed);
-            analogWrite(Motor_L_r, 255);
+            // analogWrite(Motor_L_f, 255-leftSpeed);
+            // analogWrite(Motor_L_r, 255);
+            Motor_L_f.write(1.0-lpwm);
+            Motor_L_r.write(1.0);
         }
         // Right motor
         if (right_motor_pwm > 0) {  // Forward
-            analogWrite(Motor_R_f, 255);
-            analogWrite(Motor_R_r, 255-rightSpeed);
+            // analogWrite(Motor_R_f, 255);
+            // analogWrite(Motor_R_r, 255-rightSpeed);
+
+            Motor_R_f.write(1.0);
+            Motor_R_r.write(1.0-rpwm);
+
         } else {                    // Backward
-            analogWrite(Motor_R_f, 255-rightSpeed);
-            analogWrite(Motor_R_r, 255);
+            // analogWrite(Motor_R_f, 255-rightSpeed);
+            // analogWrite(Motor_R_r, 255);
+            Motor_R_f.write(1.0-rpwm);
+            Motor_R_r.write(1.0);
         }
         
         digitalWrite(LEDR, HIGH);         
@@ -526,10 +549,15 @@ void driveMotors(float left_motor_pwm, float right_motor_pwm) {
         digitalWrite(LEDB, LOW);
         
     } else {
-        analogWrite(Motor_L_f, 255);
-        analogWrite(Motor_R_f, 255);
-        analogWrite(Motor_L_r, 255);
-        analogWrite(Motor_R_r, 255);
+        // analogWrite(Motor_L_f, 255);
+        // analogWrite(Motor_R_f, 255);
+        // analogWrite(Motor_L_r, 255);
+        // analogWrite(Motor_R_r, 255);
+
+        Motor_L_f.write(1.0);
+        Motor_R_f.write(1.0);
+        Motor_L_r.write(1.0);
+        Motor_R_r.write(1.0);
 
         digitalWrite(LEDR, LOW);         
         digitalWrite(LEDG, LOW);        
@@ -672,10 +700,17 @@ void setup() {
         Serial.println("Starting Bluetooth Low Energy Module Failed.");
          while (1);
     }
-    pinMode(Motor_L_f, OUTPUT);
-    pinMode(Motor_L_r, OUTPUT);
-    pinMode(Motor_R_f, OUTPUT);
-    pinMode(Motor_R_r, OUTPUT); 
+    // pinMode(Motor_L_f, OUTPUT);
+    // pinMode(Motor_L_r, OUTPUT);
+    // pinMode(Motor_R_f, OUTPUT);
+    // pinMode(Motor_R_r, OUTPUT); 
+
+    float pwm_frequency = 20000.0;  // 20 kHz
+    float pwm_period = 1.0 / pwm_frequency;
+    Motor_L_f.period(pwm_period);
+    Motor_L_r.period(pwm_period);
+    Motor_R_f.period(pwm_period);
+    Motor_R_r.period(pwm_period);
 
     servoMotor.attach(servoPin); 
 
