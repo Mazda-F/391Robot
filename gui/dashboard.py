@@ -526,6 +526,9 @@ class Dashboard:
         )
         self.steering_wheel_thread.start()
 
+        from audio import EngineAudio
+        self.engine = EngineAudio(initial_rpm=1200.0, initial_gear=1)
+
     def external_input_callback(self, speed, yaw, shift_up, shift_down):
         self.view.after(0, self.process_external_input, speed, yaw, shift_up, shift_down)
 
@@ -549,9 +552,11 @@ class Dashboard:
                     self.shift_down_last_pressed = time.time()
 
             self.send_bluetooth()
+            self.update_audio()
 
     def external_error_callback(self, message):
         print("[INFO] External device error:", message)
+
 
     def toggle_bluetooth(self):
         if self.bluetooth_proc is None:
@@ -576,6 +581,9 @@ class Dashboard:
             self.view.toggle_motors.configure(state="disabled")
             self.model.bluetooth_connected = False
 
+    def update_audio(self):
+        self.engine.update_parameters(self.model.energy, self.model.gear)
+
     def send_bluetooth(self):
         if self.bt_to_queue is not None:
             cmd = {
@@ -585,6 +593,7 @@ class Dashboard:
                 "params": self.model.params
             }
             self.bt_to_queue.put(cmd)
+            self.update_audio()
     
     def poll_bluetooth(self):
         if self.bt_from_queue is not None:
@@ -612,6 +621,9 @@ class Dashboard:
             self.bluetooth_proc.join()
             self.bluetooth_proc = None
         self.steering_wheel_thread.stop()
+        self.engine.stop_streaming() 
+        self.engine.server.stop()
+        self.engine.server.shutdown()
         self.view.destroy()
 
 
@@ -638,14 +650,6 @@ class Dashboard:
     @control_state.setter
     def control_state(self, value):
         self.model.control_state = value
-
-    # @property
-    # def pitch(self):
-    #     return self.model.pitch
-
-    # @pitch.setter
-    # def pitch(self, value):
-    #     self.model.pitch = value
 
     @property
     def telemetry(self):

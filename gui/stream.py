@@ -7,6 +7,7 @@ from PIL import Image, ImageTk
 import customtkinter as ctk
 import tkinter as tk
 import time
+import queue
 
 class StreamThread(threading.Thread):
     def __init__(self, frame_callback, error_callback, stream_url="http://192.168.4.1:129/stream"):
@@ -48,6 +49,7 @@ class StreamThread(threading.Thread):
                             continue
                         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                         pil_image = Image.fromarray(img)
+                        # Instead of calling tkinter methods directly, we use the callback.
                         self.frame_callback(pil_image)
         except Exception as e:
             self.error_callback("Connection Error")
@@ -69,28 +71,48 @@ class StreamWidget(ctk.CTkFrame):
         self.retry_button.place(relx=0.5, rely=0.9, anchor=tk.CENTER)
         self.retry_button.configure(state="disabled")
 
+        self.image_queue = queue.Queue()
+        self.error_queue = queue.Queue()
+        self.poll_queue()  
+
         self.thread = None
-        self.current_photo = None  # keep reference
+        self.current_photo = None  
         self.start_stream_thread()
+
+    def poll_queue(self):
+        try:
+            while True:
+                pil_image = self.image_queue.get_nowait()
+                self.update_image(pil_image)
+        except queue.Empty:
+            pass
+
+        try:
+            while True:
+                error_msg = self.error_queue.get_nowait()
+                self.show_error(error_msg)
+        except queue.Empty:
+            pass
+
+        self.after(30, self.poll_queue)
 
     def start_stream_thread(self):
         self.thread = StreamThread(self.frame_received, self.handle_connection_error)
         self.thread.start()
 
     def frame_received(self, pil_image):
-        self.after(0, self.update_image, pil_image)
+        self.image_queue.put(pil_image)
 
     def update_image(self, pil_image):
         self.retry_button.configure(state="disabled")
         self.image_label.configure(text="")
+       
         pil_image = pil_image.resize((self.width, self.height), Image.LANCZOS)
-        # pil_image = pil_image.resize((self.width, self.height))
         self.current_photo = ImageTk.PhotoImage(pil_image)
-        # self.current_photo = ctk.CTkImage(pil_image)
         self.image_label.configure(image=self.current_photo)
 
     def handle_connection_error(self, error_msg):
-        self.after(0, self.show_error, error_msg)
+        self.error_queue.put(error_msg)
 
     def show_error(self, error_msg):
         self.image_label.configure(text=error_msg, image=None)
