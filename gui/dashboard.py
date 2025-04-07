@@ -534,6 +534,11 @@ class Dashboard:
 
     def process_external_input(self, speed, yaw, shift_up, shift_down):
         if not self.view.pressed_keys:
+
+            gear = self.model.gear
+            speed_scalar = gear / 10.0 + 0.15
+            speed = speed * speed_scalar
+            
             self.model.speed = speed
             self.model.yaw = yaw
 
