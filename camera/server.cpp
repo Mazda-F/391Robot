@@ -538,7 +538,6 @@ void audio_server_task(void *pvParameters) {
     socklen_t client_addr_len = sizeof(client_addr);
     char packetBuffer[AUDIO_BUFFER_SIZE];
 
-    // Create a TCP socket for audio reception
     listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (listen_sock < 0) {
         Serial.println("Unable to create audio socket");
@@ -546,7 +545,7 @@ void audio_server_task(void *pvParameters) {
         return;
     }
     
-    // Bind the audio socket to port 130
+    // bind the audio socket to port 130
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(130);
     server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -575,7 +574,7 @@ void audio_server_task(void *pvParameters) {
         Serial.println("Audio client connected");
         int len;
         while ((len = recv(client_sock, packetBuffer, AUDIO_BUFFER_SIZE, 0)) > 0) {
-            // Process incoming audio data (16-bit PCM) by applying volume scaling.
+            // process incoming audio data (16-bit PCM) by applying volume scaling.
             int sample_count = len / 2;
             int16_t* samples = (int16_t*)packetBuffer;
             for (int i = 0; i < sample_count; i++) {
@@ -635,6 +634,5 @@ void startCameraServer() {
         Serial.println("Error starting stream server!");
     }
 
-    // Starts the audio server that recieves from computer
     xTaskCreate(audio_server_task, "audio_server", 4096, NULL, 5, NULL);
 }
